@@ -59,13 +59,43 @@ class SimplifyHloPass : public impl::SimplifyHloPassBase<SimplifyHloPass> {
   void runOnOperation() override;
 };
 
+// transpose(broadcast_in_dim(x)) -> broadcast_in_dim(x) with permuted
+// broadcast dimensions. Port of MHLO's `EliminateBroadcastInDimTranspose`
+// canonicalization. StableHLO instead rewrites such transposes into reshapes
+// when they only move unit dimensions (`TransposeIsReshape`), which then block
+// merging the broadcast with following broadcasts and leave a
+// `tfl.broadcast_to` that can't be fused into its users. Given a higher benefit
+// so that it is tried before `TransposeIsReshape`.
+struct TransposeOfBroadcastInDim
+    : public OpRewritePattern<stablehlo::TransposeOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(stablehlo::TransposeOp op,
+                                PatternRewriter& rewriter) const override {
+    auto broadcast =
+        op.getOperand().getDefiningOp<stablehlo::BroadcastInDimOp>();
+    if (!broadcast) return failure();
+    ArrayRef<int64_t> permutation = op.getPermutation();
+    SmallVector<int64_t> broadcast_dims;
+    for (int64_t dim : broadcast.getBroadcastDimensions()) {
+      broadcast_dims.push_back(llvm::find(permutation, dim) -
+                               permutation.begin());
+    }
+    rewriter.replaceOpWithNewOp<stablehlo::BroadcastInDimOp>(
+        op, op.getType(), broadcast.getOperand(), broadcast_dims);
+    return success();
+  }
+};
+
 void SimplifyHloPass::runOnOperation() {
   MLIRContext* context = &getContext();
   RewritePatternSet patterns(context);
 
-  // Folder float rewrites that may change numerics are disabled.
+  // Fold float constants too, as MHLO's folders did (e.g. the `sign`,
+  // `compare` and `select` on constants in JAX's floor_divide lowering, which
+  // the floor_div legalization patterns expect to be folded).
   stablehlo::StablehloAggressiveFolderPassOptions folder_options;
-  folder_options.optimizeFloat = false;
+  folder_options.optimizeFloat = true;
   stablehlo::populateStablehloAggressiveFolderPatterns(context, &patterns,
                                                        folder_options);
 
@@ -88,6 +118,7 @@ void SimplifyHloPass::runOnOperation() {
   }
 
   stablehlo::populateStablehloCanonicalizationPatterns(context, &patterns);
+  patterns.add<TransposeOfBroadcastInDim>(context, /*benefit=*/10);
 
   if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
     signalPassFailure();
