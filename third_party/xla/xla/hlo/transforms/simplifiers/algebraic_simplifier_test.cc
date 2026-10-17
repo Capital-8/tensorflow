@@ -29,7 +29,6 @@ limitations under the License.
 #include <gtest/gtest.h>
 #include "absl/algorithm/container.h"
 #include "absl/log/log.h"
-#include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -46,8 +45,6 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_sharding.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/hlo/pass/hlo_pass_fix.h"
-#include "xla/hlo/pass/hlo_pass_interface.h"
-#include "xla/hlo/pass/hlo_pass_options.h"
 #include "xla/hlo/testlib/filecheck.h"
 #include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/pattern_matcher_gmock.h"
@@ -1407,51 +1404,6 @@ TEST_F(AlgebraicSimplifierTest, SelectPredPred2) {
   ASSERT_TRUE(simplifier.Run(module.get()).value());
   EXPECT_THAT(computation->root_instruction(),
               GmockMatch(m::Not(m::Parameter(0))));
-}
-
-TEST_F(AlgebraicSimplifierTest, SelectPredPredScalarCondition) {
-  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(R"(
-HloModule m
-ENTRY main {
-  p = pred[] parameter(0)
-  on_true = pred[2,3] constant({{true, true, true}, {true, true, true}})
-  on_false = pred[2,3] constant({{false, false, false}, {false, false, false}})
-  ROOT select = pred[2,3] select(p, on_true, on_false)
-})"));
-  const Shape result_shape =
-      module->entry_computation()->root_instruction()->shape();
-
-  ASSERT_OK_AND_ASSIGN(
-      bool changed,
-      RunHloPass(AlgebraicSimplifier(default_options_), module.get()));
-  EXPECT_TRUE(changed);
-  EXPECT_THAT(
-      module->entry_computation()->root_instruction(),
-      GmockMatch(
-          m::Broadcast(m::Parameter(0)).WithShapeEqualTo(&result_shape)));
-  EXPECT_THAT(verifier().Run(module.get()), absl_testing::IsOk());
-}
-
-TEST_F(AlgebraicSimplifierTest, SelectPredPredScalarConditionInverted) {
-  ASSERT_OK_AND_ASSIGN(auto module, ParseAndReturnVerifiedModule(R"(
-HloModule m
-ENTRY main {
-  p = pred[] parameter(0)
-  on_true = pred[2,3] constant({{false, false, false}, {false, false, false}})
-  on_false = pred[2,3] constant({{true, true, true}, {true, true, true}})
-  ROOT select = pred[2,3] select(p, on_true, on_false)
-})"));
-  const Shape result_shape =
-      module->entry_computation()->root_instruction()->shape();
-
-  ASSERT_OK_AND_ASSIGN(
-      bool changed,
-      RunHloPass(AlgebraicSimplifier(default_options_), module.get()));
-  EXPECT_TRUE(changed);
-  EXPECT_THAT(module->entry_computation()->root_instruction(),
-              GmockMatch(m::Broadcast(m::Not(m::Parameter(0)))
-                             .WithShapeEqualTo(&result_shape)));
-  EXPECT_THAT(verifier().Run(module.get()), absl_testing::IsOk());
 }
 
 // select(compare(a, b, GT/GE), a, b) => or(a, b),   a,b ∈ PRED
@@ -4692,8 +4644,8 @@ TEST_F(AlgebraicSimplifierTest, CopyEqualsBitcast) {
   EXPECT_THAT(computation->root_instruction(),
               GmockMatch(m::Copy(m::Parameter(0))));
 
-  AlgebraicSimplifierOptions options;
-  options.set_enable_reshape_is_bitcast(false);
+  AlgebraicSimplifierOptions options(
+      [](const Shape&, const Shape&) { return false; });
   options.set_is_layout_sensitive(true);
   AlgebraicSimplifier simplifier1(options);
   ASSERT_FALSE(simplifier1.Run(m.get()).value());
@@ -5255,8 +5207,8 @@ TEST_F(AlgebraicSimplifierTest, NoBitcastAdded) {
   EXPECT_THAT(computation->root_instruction(),
               GmockMatch(m::Reshape(m::Parameter(0))));
 
-  AlgebraicSimplifierOptions options;
-  options.set_enable_reshape_is_bitcast(false);
+  AlgebraicSimplifierOptions options(
+      [](const Shape&, const Shape&) { return false; });
   options.set_is_layout_sensitive(true);
   AlgebraicSimplifier simplifier(options);
   EXPECT_FALSE(simplifier.Run(m.get()).value());
@@ -11047,8 +10999,8 @@ TEST_F(AlgebraicSimplifierTest, CopyReshape) {
     })";
   TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
   Shape result_shape = m->entry_computation()->root_instruction()->shape();
-  AlgebraicSimplifierOptions options;
-  options.set_enable_reshape_is_bitcast(false);
+  AlgebraicSimplifierOptions options(
+      [](const Shape&, const Shape&) { return false; });
   options.set_is_layout_sensitive(true);
   ASSERT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
   EXPECT_THAT(
@@ -11256,8 +11208,8 @@ TEST_F(AlgebraicSimplifierTest, DotContractingReorder_NegLayout) {
   // We disable converting reshape to bitcast to make sure algsimp pass does
   // not catch the reshape in this test, then we can simply check if algsimp
   // pass does not make any change.
-  AlgebraicSimplifierOptions options;
-  options.set_enable_reshape_is_bitcast(false);
+  AlgebraicSimplifierOptions options(
+      [](const Shape&, const Shape&) { return false; });
   options.set_is_layout_sensitive(true);
   // The transformation of moving transpose and reshape to the constant side is
   // layout insensitive. It should not happen if AlgebraicSimplifier is set up
@@ -13440,35 +13392,6 @@ TEST_F(AlgebraicSimplifierTest,
   ASSERT_FALSE(AlgebraicSimplifier(default_options_).Run(m.get()).value());
 }
 
-TEST_F(AlgebraicSimplifierTest,
-       DoNotSimplifyRedundantBitcastWithControlSuccessor) {
-  constexpr absl::string_view kModuleStr = R"(
-    HloModule m
-
-    ENTRY test {
-      p0 = s32[10] parameter(0)
-      p1 = s32[10] parameter(1)
-      p2 = s32[10] parameter(2)
-      b0 = s32[1, 10] bitcast(p0)
-      b1 = s32[1, 1, 10] bitcast(b0)
-      add0 = s32[10] add(p1, p2), control-predecessors={b1}
-      ROOT t = (s32[1, 1, 10], s32[10]) tuple(b1, add0)
-    }
-  )";
-  ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
-  // Folding b1 into b0 would drop the b1 -> add0 ordering edge.
-  ASSERT_OK_AND_ASSIGN(bool changed,
-                       AlgebraicSimplifier(default_options_).Run(m.get()));
-  EXPECT_FALSE(changed);
-  ASSERT_OK(verifier().Run(m.get()).status());
-  HloInstruction* b1 = FindInstruction(m.get(), "b1");
-  HloInstruction* add0 = FindInstruction(m.get(), "add0");
-  ASSERT_NE(b1, nullptr);
-  EXPECT_THAT(b1, GmockMatch(m::Bitcast(m::Bitcast(m::Parameter(0)))));
-  EXPECT_THAT(b1->control_successors(), ElementsAre(add0));
-  EXPECT_EQ(m->entry_computation()->root_instruction()->operand(0), b1);
-}
-
 TEST_F(AlgebraicSimplifierTest, SimplifyOptimizationBarrier) {
   constexpr absl::string_view kModuleStr = R"(
     HloModule m
@@ -15286,8 +15209,10 @@ TEST_F(AlgebraicSimplifierTest, CopyReshapeToReshapeCopyWithHostCopies) {
     ROOT copy.10970 = f32[16,8,8]{1,2,0:T(8,128)} copy(reshape.37527)
   })";
   TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(hlo));
-  AlgebraicSimplifierOptions options;
-  options.set_enable_reshape_is_bitcast(false);
+  auto reshape_is_bitcast = [](const Shape& from_shape, const Shape& to_shape) {
+    return false;
+  };
+  AlgebraicSimplifierOptions options(reshape_is_bitcast);
   options.set_enable_floats_are_real(true);
   options.set_is_layout_sensitive(true);
   options.set_enable_conv_simplification(false);
@@ -16042,45 +15967,6 @@ TEST_F(AlgebraicSimplifierTest, CanonicalizesMultiDimShuffleRotate) {
   EXPECT_EQ(shuffle->rotate().shifts(0), 3);
   EXPECT_EQ(shuffle->dimensions()[1], 1);
   EXPECT_EQ(shuffle->rotate().shifts(1), 3);
-}
-
-TEST(AlgebraicSimplifierOptionsTest, FromHloPassOptions) {
-  HloPassOptions pass_options = {{"is_layout_sensitive", true},
-                                 {"enable_dot_strength_reduction", false},
-                                 {"very_small_gather_size", 17}};
-  AlgebraicSimplifierOptions options =
-      AlgebraicSimplifierOptionsFromHloPassOptions(pass_options);
-  ASSERT_OK(pass_options.CheckAllConsumed());
-  EXPECT_TRUE(options.is_layout_sensitive());
-  EXPECT_FALSE(options.enable_dot_strength_reduction());
-  EXPECT_EQ(options.very_small_gather_size(), 17);
-  // Fields absent from `pass_options` stay unset.
-  EXPECT_FALSE(options.has_enable_conv_simplification());
-}
-
-TEST(AlgebraicSimplifierOptionsTest, FromHloPassOptionsRelativeToBase) {
-  AlgebraicSimplifierOptions base;
-  base.set_enable_dot_strength_reduction(false);
-  base.set_very_small_gather_size(17);
-  AlgebraicSimplifierOptions options =
-      AlgebraicSimplifierOptionsFromHloPassOptions(
-          {{"enable_dot_strength_reduction", true}}, base);
-  EXPECT_TRUE(options.enable_dot_strength_reduction());
-  EXPECT_EQ(options.very_small_gather_size(), 17);
-}
-
-TEST(AlgebraicSimplifierOptionsTest, FromHloPassOptionsWrongTypeIsUnconsumed) {
-  HloPassOptions pass_options = {{"is_layout_sensitive", 1}};
-  AlgebraicSimplifierOptionsFromHloPassOptions(pass_options);
-  EXPECT_THAT(pass_options.CheckAllConsumed(),
-              absl_testing::StatusIs(absl::StatusCode::kInvalidArgument));
-}
-
-TEST(AlgebraicSimplifierOptionsTest, FromHloPassOptionsUnknownKeyIsUnconsumed) {
-  HloPassOptions pass_options = {{"no_such_option", true}};
-  AlgebraicSimplifierOptionsFromHloPassOptions(pass_options);
-  EXPECT_THAT(pass_options.CheckAllConsumed(),
-              absl_testing::StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
 }  // namespace

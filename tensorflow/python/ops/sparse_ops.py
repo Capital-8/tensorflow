@@ -638,26 +638,18 @@ def sparse_cross(inputs, name=None, separator=None):
 
 
   Args:
-    inputs: An iterable of `Tensor` or `SparseTensor`. All input tensors must
-      have an integer or `string` dtype.
+    inputs: An iterable of `Tensor` or `SparseTensor`.
     name: Optional name for the op.
     separator: A string added between each string being joined. Defaults to
       '_X_'.
 
   Returns:
     A `SparseTensor` of type `string`.
-
-  Raises:
-    TypeError: If `inputs` is not a list or tuple, if any element in `inputs`
-      is not a `Tensor` or `SparseTensor`, or if any input has a dtype other
-      than integer or `string` (such as `float` or `bool`).
   """
   if separator is None:
     separator = "_X_"
   separator = ops.convert_to_tensor(separator, dtypes.string)
-  indices, values, shapes, dense_inputs = _sparse_cross_internal_v2(
-      inputs, op_name="tf.sparse.cross"
-  )
+  indices, values, shapes, dense_inputs = _sparse_cross_internal_v2(inputs)
   indices_out, values_out, shape_out = gen_sparse_ops.sparse_cross_v2(
       indices=indices,
       values=values,
@@ -700,30 +692,22 @@ def sparse_cross_hashed(inputs, num_buckets=0, hash_key=None, name=None):
                       Fingerprint64("e"), Fingerprint64("c")))
 
   Args:
-    inputs: An iterable of `Tensor` or `SparseTensor`. All input tensors must
-      have an integer or `string` dtype.
-    num_buckets: An `int` that is `>= 0`. output = hashed_value%num_buckets if
-      num_buckets > 0 else hashed_value.
+    inputs: An iterable of `Tensor` or `SparseTensor`.
+    num_buckets: An `int` that is `>= 0`.
+      output = hashed_value%num_buckets if num_buckets > 0 else hashed_value.
     hash_key: Integer hash_key that will be used by the `FingerprintCat64`
       function. If not given, will use a default key.
     name: Optional name for the op.
 
   Returns:
     A `SparseTensor` of type `int64`.
-
-  Raises:
-    TypeError: If `inputs` is not a list or tuple, if any element in `inputs`
-      is not a `Tensor` or `SparseTensor`, or if any input has a dtype other
-      than integer or `string` (such as `float` or `bool`).
   """
   return _sparse_cross_internal(
       inputs=inputs,
       hashed_output=True,
       num_buckets=num_buckets,
       hash_key=hash_key,
-      name=name,
-      op_name="tf.sparse.cross_hashed",
-  )
+      name=name)
 
 
 _sparse_cross_hashed = sparse_cross_hashed
@@ -731,8 +715,8 @@ _sparse_cross_hashed = sparse_cross_hashed
 _DEFAULT_HASH_KEY = 0xDECAFCAFFE
 
 
-def _validate_sparse_cross_inputs(inputs, op_name="tf.sparse.cross"):
-  """Validates inputs for sparse cross ops."""
+def _sparse_cross_internal_v2(inputs):
+  """See gen_sparse_ops.sparse_cross_v2."""
   if not isinstance(inputs, (tuple, list)):
     raise TypeError("Inputs must be a list")
   if not all(
@@ -740,22 +724,6 @@ def _validate_sparse_cross_inputs(inputs, op_name="tf.sparse.cross"):
           i, sparse_tensor.SparseTensor) or isinstance(i, tensor_lib.Tensor)
       for i in inputs):
     raise TypeError("All inputs must be Tensor or SparseTensor.")
-  for i, inp in enumerate(inputs):
-    inp_dtype = (
-        inp.values.dtype
-        if isinstance(inp, sparse_tensor.SparseTensor)
-        else inp.dtype
-    )
-    if not (inp_dtype.is_integer or inp_dtype == dtypes.string):
-      raise TypeError(
-          f"Unexpected dtype for inputs[{i}]: {inp_dtype}. "
-          f"{op_name} only supports integer and string dtypes."
-      )
-
-
-def _sparse_cross_internal_v2(inputs, op_name="tf.sparse.cross"):
-  """See gen_sparse_ops.sparse_cross_v2."""
-  _validate_sparse_cross_inputs(inputs, op_name=op_name)
   sparse_inputs = [
       i for i in inputs if isinstance(i, sparse_tensor.SparseTensor)
   ]
@@ -766,24 +734,27 @@ def _sparse_cross_internal_v2(inputs, op_name="tf.sparse.cross"):
   values = [sp_input.values for sp_input in sparse_inputs]
   shapes = [sp_input.dense_shape for sp_input in sparse_inputs]
   for i in range(len(values)):
-    if values[i].dtype.is_integer:
+    if values[i].dtype != dtypes.string:
       values[i] = math_ops.cast(values[i], dtypes.int64)
   for i in range(len(dense_inputs)):
-    if dense_inputs[i].dtype.is_integer:
+    if dense_inputs[i].dtype != dtypes.string:
       dense_inputs[i] = math_ops.cast(dense_inputs[i], dtypes.int64)
   return indices, values, shapes, dense_inputs
 
 
-def _sparse_cross_internal(
-    inputs,
-    hashed_output=False,
-    num_buckets=0,
-    hash_key=None,
-    name=None,
-    op_name="tf.sparse.cross",
-):
+def _sparse_cross_internal(inputs,
+                           hashed_output=False,
+                           num_buckets=0,
+                           hash_key=None,
+                           name=None):
   """See gen_sparse_ops.sparse_cross."""
-  _validate_sparse_cross_inputs(inputs, op_name=op_name)
+  if not isinstance(inputs, (tuple, list)):
+    raise TypeError("Inputs must be a list")
+  if not all(
+      isinstance(
+          i, sparse_tensor.SparseTensor) or isinstance(i, tensor_lib.Tensor)
+      for i in inputs):
+    raise TypeError("All inputs must be SparseTensors")
 
   sparse_inputs = [
       i for i in inputs if isinstance(i, sparse_tensor.SparseTensor)
@@ -799,11 +770,11 @@ def _sparse_cross_internal(
 
   internal_type = dtypes.string
   for i in range(len(values)):
-    if values[i].dtype.is_integer:
+    if values[i].dtype != dtypes.string:
       values[i] = math_ops.cast(values[i], dtypes.int64)
       internal_type = dtypes.int64
   for i in range(len(dense_inputs)):
-    if dense_inputs[i].dtype.is_integer:
+    if dense_inputs[i].dtype != dtypes.string:
       dense_inputs[i] = math_ops.cast(dense_inputs[i], dtypes.int64)
       internal_type = dtypes.int64
 

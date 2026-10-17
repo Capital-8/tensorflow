@@ -649,8 +649,6 @@ class ParametricDotTestWithoutLayoutAssignment : public ParametricDotTest {
     // Disable algebraic simplification because the pass may replace a dot
     // instruction with a layout-changing multiplication instruction.
     mutable_debug_options()->add_xla_disable_hlo_passes("algsimp");
-    mutable_debug_options()->add_xla_disable_hlo_passes(
-        "gpu-algebraic-simplifier");
   }
 };
 

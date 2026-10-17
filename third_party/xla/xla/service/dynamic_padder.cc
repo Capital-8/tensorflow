@@ -164,6 +164,7 @@ absl::StatusOr<HloInstruction*> ChooseIdentityValue(HloInstruction* inst,
     case HloOpcode::kTranspose:
     case HloOpcode::kSort:
     case HloOpcode::kSlice:
+    case HloOpcode::kDomain:
     case HloOpcode::kOptimizationBarrier:
       return nullptr;
     case HloOpcode::kCustomCall:
@@ -2148,7 +2149,9 @@ absl::StatusOr<bool> DynamicPadder::RunImpl(
   FlattenCallGraph flatten_call_graph;
   ABSL_ASSIGN_OR_RETURN(bool changed,
                    flatten_call_graph.Run(module, execution_threads));
-  CallInliner call_inliner(/*single_call_site=*/false);
+  CallInliner call_inliner(
+      /*single_call_site=*/false,
+      /*update_domain=*/false);
   ABSL_ASSIGN_OR_RETURN(bool inliner_changed,
                    call_inliner.Run(module, execution_threads));
   changed |= inliner_changed;

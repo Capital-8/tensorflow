@@ -1057,7 +1057,6 @@ class VectorizeXTilePass
       mm::ExpM1Op,
       mm::ExpOp,
       mm::FloorOp,
-      mm::FmaOp,
       mm::IPowIOp,
       mm::IsFiniteOp,
       mm::Log1pOp, mm::Log2Op, mm::LogOp,

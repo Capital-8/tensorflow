@@ -24,7 +24,6 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
-#include "xla/hlo/pass/hlo_pass_registry.h"
 #include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/gpu/ir_emission_utils.h"
 #include "xla/tsl/platform/errors.h"
@@ -54,10 +53,6 @@ class CustomCallVisitor : public DfsHloRewriteVisitor {
     return absl::OkStatus();
   }
 };
-
-const HloPassFactory* const kCuDnnCustomCallConverterRegistration =
-    RegisterHloPassFactory<DefaultHloPassFactory<CuDnnCustomCallConverter>>(
-        "cudnn-custom-call-converter");
 
 }  // namespace
 

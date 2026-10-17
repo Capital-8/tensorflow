@@ -20,7 +20,6 @@ limitations under the License.
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -74,10 +73,10 @@ class GpuExecutableBufferAllocator {
 
   using AllocationIndexSet = absl::btree_set<BufferAllocation::Index>;
 
-  // Per-run buffer allocation context created by `CreateExecutionScope` for
-  // one device. Callers first use it to build `BufferAllocations` from runtime
-  // parameters, constants, temporary buffers, and output buffers, then use it
-  // to run the executable with those allocations.
+  // Per-run buffer allocation context created by `CreateExecutionScope`.
+  // Callers first use it to build `BufferAllocations` from runtime parameters,
+  // constants, temporary buffers, and output buffers, then use it to run the
+  // executable with those allocations.
   //
   // This base class resolves allocation addresses without any VA remapping
   // and passes only global constants as persistent allocations. Subclasses
@@ -102,7 +101,7 @@ class GpuExecutableBufferAllocator {
         const ServiceExecutableRunOptions* run_options,
         ParameterBufferResolver get_parameter_buffer,
         const BufferAllocToDeviceMemoryMap* globals,
-        se::DeviceAddressAllocator* memory_allocator);
+        se::DeviceAddressAllocator* memory_allocator, int device_ordinal);
 
     // Copy-protection for an aliased output that was not donated at runtime:
     // allocates a fresh result buffer for the output at `index`, copies the
@@ -112,7 +111,7 @@ class GpuExecutableBufferAllocator {
     absl::StatusOr<se::DeviceAddressBase> AllocateCopyProtectedOutputBuffer(
         const ServiceExecutableRunOptions* run_options,
         BufferAllocations& buffer_allocations, const ShapeIndex& index,
-        const BufferAllocation& allocation,
+        const BufferAllocation& allocation, int device_ordinal,
         se::DeviceAddressAllocator* memory_allocator,
         absl::FunctionRef<absl::Status(absl::Status)> allocation_error);
 
@@ -120,31 +119,21 @@ class GpuExecutableBufferAllocator {
     // The base implementation passes the command-buffer-referenced constant
     // allocations as the persistent allocation indices.
     virtual absl::Status ExecuteWithBufferAllocations(
-        const BufferAllocations& owning_buffer_allocations,
+        const BufferAllocations& owning_buffer_allocations, int device_ordinal,
         absl::FunctionRef<absl::Status(
             const BufferAllocations&,
             std::optional<absl::Span<const BufferAllocation::Index>>
                 persistent_alloc_indices)>
             execute);
 
-    // Releases the transient buffers in `buffer_allocations` whose addresses
-    // are not in `live_addresses`. `buffer_allocations` must be the table
-    // returned by this scope's GenerateBufferAllocations.
-    virtual absl::Status TearDown(
-        const std::set<se::DeviceAddressBase>& live_addresses,
-        BufferAllocations& buffer_allocations);
-
    protected:
-    ExecutionScope(const GpuExecutableBufferAllocator* owner,
-                   int device_ordinal)
-        : owner_(owner), device_ordinal_(device_ordinal) {}
-
-    int device_ordinal() const { return device_ordinal_; }
+    explicit ExecutionScope(const GpuExecutableBufferAllocator* owner)
+        : owner_(owner) {}
 
     // Hook called once per GenerateBufferAllocations before any allocation is
     // resolved. The base implementation does nothing.
-    virtual absl::Status Prepare(
-        const ServiceExecutableRunOptions* run_options) {
+    virtual absl::Status Prepare(const ServiceExecutableRunOptions* run_options,
+                                 int device_ordinal) {
       return absl::OkStatus();
     }
 
@@ -152,8 +141,8 @@ class GpuExecutableBufferAllocator {
     // `buffer_size` bytes (> 0). The base implementation allocates from
     // `memory_allocator`.
     virtual absl::StatusOr<se::DeviceAddressBase> AllocateTransientBuffer(
-        const BufferAllocation& allocation, int64_t buffer_size,
-        se::DeviceAddressAllocator* memory_allocator);
+        int device_ordinal, const BufferAllocation& allocation,
+        int64_t buffer_size, se::DeviceAddressAllocator* memory_allocator);
 
    private:
     friend class GpuExecutableBufferAllocator;
@@ -162,10 +151,10 @@ class GpuExecutableBufferAllocator {
         ParameterBufferResolver get_parameter_buffer,
         const BufferAllocToDeviceMemoryMap* globals,
         const BufferAllocation& allocation,
-        se::DeviceAddressAllocator* memory_allocator, int64_t arg_idx);
+        se::DeviceAddressAllocator* memory_allocator, int device_ordinal,
+        int64_t arg_idx);
 
     const GpuExecutableBufferAllocator* owner_ = nullptr;
-    const int device_ordinal_;
   };
 
   // Creates the buffer allocator implementing

@@ -143,9 +143,7 @@ class PeerFailureRecoverTest(test.TestCase):
         if attempt == 1 and task_id == 1:
           quick_exit(1)
         v = tf.Variable(tf.random.uniform(()))
-        result = v.read_value().numpy()
-      multi_process_runner.get_barrier().wait()
-      return result
+        return v.read_value().numpy()
 
     cluster_spec = multi_worker_test_base.create_cluster_spec(num_workers=2)
     attempts = multi_process_runner.manager().dict()
@@ -170,9 +168,7 @@ class PeerFailureRecoverTest(test.TestCase):
       # worker-1 dies here.
       if attempt == 1 and task_id == 1:
         quick_exit(1)
-      result = strategy.reduce("sum", value, axis=None).numpy()
-      multi_process_runner.get_barrier().wait()
-      return result
+      return strategy.reduce("sum", value, axis=None).numpy()
 
     cluster_spec = multi_worker_test_base.create_cluster_spec(num_workers=2)
     attempts = multi_process_runner.manager().dict()
@@ -216,7 +212,6 @@ class PeerFailureRecoverTest(test.TestCase):
       if attempt == 1 and task_id == 1:
         quick_exit(1)
       strategy.run(replica_fn)
-      multi_process_runner.get_barrier().wait()
 
     cluster_spec = multi_worker_test_base.create_cluster_spec(num_workers=2)
     attempts = multi_process_runner.manager().dict()

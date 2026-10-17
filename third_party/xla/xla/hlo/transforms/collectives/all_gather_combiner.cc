@@ -41,6 +41,7 @@ limitations under the License.
 #include "xla/hlo/utils/hlo_sharding_util.h"
 #include "xla/layout.h"
 #include "xla/service/collective_combiner_utils.h"
+#include "xla/service/hlo_domain_map.h"
 #include "xla/shape_util.h"
 #include "xla/status_macros.h"
 #include "xla/xla_data.pb.h"
@@ -146,11 +147,12 @@ absl::Status CombineAllGathers(
 
 /* static */ std::string& AllGatherCombiner::GetGroupKeyExtraArgs(
     AllGatherCombiner::GroupKey& key) {
-  return std::get<5>(key);
+  return std::get<6>(key);
 }
 
 /* static */ std::optional<AllGatherCombiner::GroupKey>
 AllGatherCombiner::CombineKey(const HloInstruction* instruction,
+                              const HloDomainMap& domain_map,
                               bool combine_by_dim,
                               bool combine_different_dtypes) {
   if (instruction->opcode() != HloOpcode::kAllGather) {
@@ -173,6 +175,7 @@ AllGatherCombiner::CombineKey(const HloInstruction* instruction,
                                 ? PRIMITIVE_TYPE_INVALID
                                 : ag->shape().element_type();
   return GroupKey{ag_dim_key,
+                  domain_map.GetDomainMetadataId(ag),
                   ag->channel_id().has_value(),
                   ag->use_global_device_ids(),
                   data_type,
@@ -195,7 +198,7 @@ absl::StatusOr<bool> AllGatherCombiner::RunWithKeyCombiner(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads,
     absl::FunctionRef<std::optional<AllGatherCombiner::GroupKey>(
-        const HloInstruction*, bool, bool)>
+        const HloInstruction*, const HloDomainMap&, bool, bool)>
         combine_key) {
   return RunWithKeyCombiner(module, execution_threads, combine_key, nullptr);
 }
@@ -204,7 +207,7 @@ absl::StatusOr<bool> AllGatherCombiner::RunWithKeyCombiner(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads,
     absl::FunctionRef<std::optional<AllGatherCombiner::GroupKey>(
-        const HloInstruction*, bool, bool)>
+        const HloInstruction*, const HloDomainMap&, bool, bool)>
         combine_key,
     PostCombineFn post_combine) {
   VLOG(1) << "Running AllGatherCombiner with threshold of "
@@ -232,9 +235,10 @@ absl::StatusOr<bool> AllGatherCombiner::RunWithKeyCombiner(
               << computation->ToString();
       continue;
     }
+    ABSL_ASSIGN_OR_RETURN(auto domain_map, HloDomainMap::Create(computation, ""));
 
     auto key_fn = [&](const HloInstruction* instruction) {
-      return combine_key(instruction, combine_by_dim_,
+      return combine_key(instruction, *domain_map, combine_by_dim_,
                          combine_different_dtypes_);
     };
     auto combine_fn =

@@ -74,7 +74,8 @@ bool IsAssociativeScan(const HloInstruction* hlo) {
 // says nothing about them.
 bool IsTupleForwarder(const HloInstruction* hlo) {
   return hlo->opcode() == HloOpcode::kTuple ||
-         hlo->opcode() == HloOpcode::kGetTupleElement;
+         hlo->opcode() == HloOpcode::kGetTupleElement ||
+         hlo->opcode() == HloOpcode::kDomain;
 }
 
 // Returns true if every array leaf of `shape` has element type `type`. Stops

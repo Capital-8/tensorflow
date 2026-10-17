@@ -15,11 +15,10 @@
 
 // RUN: litert-opt %s -tfl-fuse-a4w2-drq-fully-connected | FileCheck %s
 
-// Every property the a4w2 DRQ contracts (`cint2_fp32_int4_e8m0_drq` and
-// `int2_fp32_int4_e8m0_drq`) fix is baked into the runtime kernel rather than
-// carried in the flatbuffer, so each negative test below pins a case where
-// matching would produce a model that runs but computes something other than
-// what the graph says.
+// Every property the `cint2_fp32_int4_e8m0_drq` contract fixes is baked into the
+// runtime kernel rather than carried in the flatbuffer, so each negative test
+// below pins a case where matching would produce a model that runs but
+// computes something other than what the graph says.
 
 // -----------------------------------------------------------------------------
 // Positive case.
@@ -48,16 +47,14 @@ func.func @FuseA4W2Drq(%arg0: tensor<4x64xf32>) -> tensor<4x32xf32> {
 }
 
 // -----------------------------------------------------------------------------
-// Positive: the weights are on the plain int2 grid, expressed as a symmetric
-// dequantize with no zero point. This is what a JAX weight observed without
-// centering lowers to.
+// Negative: the weights are on a plain symmetric grid, not a centered one.
 //
-// The per-axis zero point written to the weights is 0 for both contracts; the
-// spec name alone tells the kernel where the grid sits.
+// The kernel unconditionally reconstructs weights as `(q + 0.5) * scale`, so
+// matching here would shift every weight by half a step.
 // -----------------------------------------------------------------------------
 
-// CHECK-LABEL: @FuseA4W2DrqSymmetricWeights
-func.func @FuseA4W2DrqSymmetricWeights(%arg0: tensor<4x64xf32>) -> tensor<4x32xf32> {
+// CHECK-LABEL: @NoFuseSymmetricWeights
+func.func @NoFuseSymmetricWeights(%arg0: tensor<4x64xf32>) -> tensor<4x32xf32> {
   %bias = "tfl.no_value"() {value} : () -> none
   %w = "tfl.pseudo_const"() {value = dense<1> : tensor<32x64xi2>} : () -> tensor<32x64xi2>
   %w_scale = "tfl.pseudo_const"() {value = dense<2.500000e-01> : tensor<32x1xf32>} : () -> tensor<32x1xf32>
@@ -68,40 +65,12 @@ func.func @FuseA4W2DrqSymmetricWeights(%arg0: tensor<4x64xf32>) -> tensor<4x32xf
   %0 = "tfl.fully_connected"(%act_dq, %w_dq, %bias) {asymmetric_quantize_inputs = false, fused_activation_function = "NONE", keep_num_dims = false, weights_format = "DEFAULT"} : (tensor<4x64xf32>, tensor<32x64xf32>, none) -> tensor<4x32xf32>
   func.return %0 : tensor<4x32xf32>
 
-  // CHECK-NOT: tfl.blockwise_quantize
-  // CHECK-NOT: tfl.blockwise_dequantize
-  // CHECK: %[[QW:.*]] = "tfl.pseudo_qconst"() <{qtype = tensor<32x64x!quant.uniform<i2:f32:0, {2.500000e-01
-  // CHECK: %[[FC:.*]] = "tfl.fully_connected"(%arg0, %[[QW]],
-  // CHECK-SAME: tfl.quant_spec = {act_dilation = 1.500000e+00 : f32, spec = "int2_fp32_int4_e8m0_drq"}
-  // CHECK: return %[[FC]]
+  // CHECK: tfl.blockwise_dequantize
+  // CHECK-NOT: tfl.quant_spec
 }
 
 // -----------------------------------------------------------------------------
-// Positive: the plain int2 grid expressed as an asymmetric dequantize with an
-// explicit all-zero zero point.
-// -----------------------------------------------------------------------------
-
-// CHECK-LABEL: @FuseA4W2DrqZeroZeroPoint
-func.func @FuseA4W2DrqZeroZeroPoint(%arg0: tensor<4x64xf32>) -> tensor<4x32xf32> {
-  %bias = "tfl.no_value"() {value} : () -> none
-  %w = "tfl.pseudo_const"() {value = dense<1> : tensor<32x64xi2>} : () -> tensor<32x64xi2>
-  %w_scale = "tfl.pseudo_const"() {value = dense<2.500000e-01> : tensor<32x1xf32>} : () -> tensor<32x1xf32>
-  %w_zp = "tfl.pseudo_const"() {value = dense<0.000000e+00> : tensor<32x1xf32>} : () -> tensor<32x1xf32>
-  %act:3 = "tfl.blockwise_quantize"(%arg0) {block_shape = [1, 32], scale_type = f8E8M0FNU, symmetric = true, range_dilation = 1.500000e+00 : f32} : (tensor<4x64xf32>) -> (tensor<4x64xi4>, tensor<4x2xf8E8M0FNU>, none)
-  %act_dq = "tfl.blockwise_dequantize"(%act#0, %act#1, %act#2) {block_shape = [1, 32], symmetric = true} : (tensor<4x64xi4>, tensor<4x2xf8E8M0FNU>, none) -> tensor<4x64xf32>
-  %w_dq = "tfl.blockwise_dequantize"(%w, %w_scale, %w_zp) {block_shape = [1, 64], symmetric = false} : (tensor<32x64xi2>, tensor<32x1xf32>, tensor<32x1xf32>) -> tensor<32x64xf32>
-  %0 = "tfl.fully_connected"(%act_dq, %w_dq, %bias) {asymmetric_quantize_inputs = false, fused_activation_function = "NONE", keep_num_dims = false, weights_format = "DEFAULT"} : (tensor<4x64xf32>, tensor<32x64xf32>, none) -> tensor<4x32xf32>
-  func.return %0 : tensor<4x32xf32>
-
-  // CHECK-NOT: tfl.blockwise_dequantize
-  // CHECK: %[[QW:.*]] = "tfl.pseudo_qconst"() <{qtype = tensor<32x64x!quant.uniform<i2:f32:0, {2.500000e-01
-  // CHECK: "tfl.fully_connected"(%arg0, %[[QW]],
-  // CHECK-SAME: tfl.quant_spec = {act_dilation = 1.500000e+00 : f32, spec = "int2_fp32_int4_e8m0_drq"}
-}
-
-// -----------------------------------------------------------------------------
-// Negative: an asymmetric weight zero point that is neither the centered -0.5
-// nor 0, i.e. a grid neither contract reconstructs.
+// Negative: an asymmetric weight zero point that is not the centered -0.5.
 // -----------------------------------------------------------------------------
 
 // CHECK-LABEL: @NoFuseNonCenteredZeroPoint

@@ -194,9 +194,6 @@ bool CompressTensorContent(float min_compression_ratio,
   using FieldType = typename internal::TensorProtoHelper<T>::FieldType;
   const int64_t num_tensor_values = shape.num_elements();
   const int64_t num_bytes = tensor->tensor_content().size();
-  if (num_bytes % sizeof(T) != 0) {
-    return false;
-  }
   const int64_t num_raw_values = num_bytes / sizeof(T);
   if (num_raw_values != num_tensor_values) {
     // Invalid or too small.

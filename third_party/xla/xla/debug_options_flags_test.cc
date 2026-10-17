@@ -88,15 +88,11 @@ TEST(DebugOptions, CommandBufferUpdateModeDefaultsToAlwaysUpdate) {
       DebugOptions::ALWAYS_UPDATE);
 }
 
-TEST(DebugOptions,
-     SchedulerMemoryFencingDefaultsToAutomaticWithOneSlackWindow) {
+TEST(DebugOptions, SchedulerMemoryFencingDefaultsToDisabled) {
   EXPECT_EQ(
       DefaultDebugOptionsIgnoringFlags()
           .xla_gpu_experimental_scheduler_memory_fencing_threshold_bytes(),
-      0);
-  EXPECT_EQ(DefaultDebugOptionsIgnoringFlags()
-                .xla_gpu_experimental_scheduler_memory_fencing_slack_windows(),
-            1);
+      -1);
 }
 
 TEST(DebugOptions, CommandBufferUpdateModesParseFromFlags) {

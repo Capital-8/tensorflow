@@ -264,29 +264,25 @@ ENTRY entry {
                   /*generation=*/1,
                   /*height=*/3, /*subgraph_fingerprint=*/9962200665388442837U,
                   /*fingerprint=*/7968662072287666665U,
-                  /*canonical_fingerprint=*/7968662072287666665U,
-                  /*canonical_subgraph_fingerprint=*/16247945295891175893U));
+                  /*canonical_fingerprint=*/7968662072287666665U));
   EXPECT_THAT(entry->children[0]->props,
               FieldsAre(
                   /*generation=*/2,
                   /*height=*/2, /*subgraph_fingerprint=*/4310971099511013727U,
                   /*fingerprint=*/7968662072287666665U,
-                  /*canonical_fingerprint=*/7968662072287666665U,
-                  /*canonical_subgraph_fingerprint=*/1517098623072197810U));
+                  /*canonical_fingerprint=*/7968662072287666665U));
   EXPECT_THAT(entry->children[1]->props,
               FieldsAre(
                   /*generation=*/3,
                   /*height=*/1, /*subgraph_fingerprint=*/18012536209527975916U,
                   /*fingerprint=*/18012536209527975916U,
-                  /*canonical_fingerprint=*/18012536209527975916U,
-                  /*canonical_subgraph_fingerprint=*/18012536209527975916U));
+                  /*canonical_fingerprint=*/18012536209527975916U));
   EXPECT_THAT(entry->children[0]->children[0]->props,
               FieldsAre(
                   /*generation=*/3,
                   /*height=*/1, /*subgraph_fingerprint=*/856105463456541506U,
                   /*fingerprint=*/856105463456541506U,
-                  /*canonical_fingerprint=*/856105463456541506U,
-                  /*canonical_subgraph_fingerprint=*/12086550825937238083U));
+                  /*canonical_fingerprint=*/856105463456541506U));
 
   EXPECT_THAT(
       graph->AllComputationProps(),
@@ -323,23 +319,20 @@ ENTRY entry {
                   /*generation=*/1,
                   /*height=*/3, /*subgraph_fingerprint=*/11252067960774703537U,
                   /*fingerprint=*/13023796333337170182U,
-                  /*canonical_fingerprint=*/962574172336760684U,
-                  /*canonical_subgraph_fingerprint=*/8569993275024220503U));
+                  /*canonical_fingerprint=*/962574172336760684U));
 
   EXPECT_THAT(entry->children[0]->props,
               FieldsAre(
                   /*generation=*/2,
                   /*height=*/2, /*subgraph_fingerprint=*/471903521785970780U,
                   /*fingerprint=*/13023796333337170182U,
-                  /*canonical_fingerprint=*/962574172336760684U,
-                  /*canonical_subgraph_fingerprint=*/5144884918847889013U));
+                  /*canonical_fingerprint=*/962574172336760684U));
   EXPECT_THAT(entry->children[1]->props,
               FieldsAre(
                   /*generation=*/3,
                   /*height=*/1, /*subgraph_fingerprint=*/12029491953972985219U,
                   /*fingerprint=*/12029491953972985219U,
-                  /*canonical_fingerprint=*/12271265969888951136U,
-                  /*canonical_subgraph_fingerprint=*/12271265969888951136U));
+                  /*canonical_fingerprint=*/12271265969888951136U));
   EXPECT_EQ(entry->children[0]->children[0]->props.subgraph_fingerprint,
             7851455295828926644U);
   EXPECT_EQ(entry->children[0]->children[0]->props.fingerprint,
@@ -351,8 +344,7 @@ ENTRY entry {
                   /*generation=*/3,
                   /*height=*/1, /*subgraph_fingerprint=*/7851455295828926644U,
                   /*fingerprint=*/7851455295828926644U,
-                  /*canonical_fingerprint=*/1668459129586447343U,
-                  /*canonical_subgraph_fingerprint=*/7698077043747949829U));
+                  /*canonical_fingerprint=*/1668459129586447343U));
 
   EXPECT_THAT(
       graph->AllComputationProps(),

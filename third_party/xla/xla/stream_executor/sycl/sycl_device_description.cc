@@ -62,13 +62,13 @@ namespace {
 // TODO(intel-tf): Implement a proper memory bandwidth estimation based on
 // level zero memory properties.
 int64_t EstimateMemoryBandwidth(const OneAPIComputeCapability& oneapi_cc) {
-  if (oneapi_cc.IsXe2HPG()) {
+  if (oneapi_cc.IsBMG()) {
     // https://www.intel.com/content/www/us/en/products/sku/241598/intel-arc-b580-graphics/specifications.html
     return 456'000'000'000;
-  } else if (oneapi_cc.IsXeHPC()) {
+  } else if (oneapi_cc.IsPVC()) {
     // https://www.intel.com/content/www/us/en/products/sku/232876/intel-data-center-gpu-max-1100/specifications.html
     return 1'228'800'000'000;
-  } else if (oneapi_cc.IsXeHPG()) {
+  } else if (oneapi_cc.IsDG2()) {
     // https://www.intel.com/content/www/us/en/products/sku/227959/intel-arc-a380-graphics/specifications.html
     return 186'000'000'000;
   } else {

@@ -195,14 +195,7 @@ std::vector<HloOpcode> TritonSupportedBinaryElementwiseUpToFloatNormalization(
 
 std::vector<HloOpcode> TritonSupportedTernaryElementwiseUpToFloatNormalization(
     PrimitiveType element_type) {
-  std::vector<HloOpcode> ret{HloOpcode::kSelect, HloOpcode::kClamp};
-  if (element_type == PrimitiveType::F16 ||
-      element_type == PrimitiveType::BF16 ||
-      element_type == PrimitiveType::F32 ||
-      element_type == PrimitiveType::F64) {
-    ret.push_back(HloOpcode::kFma);
-  }
-  return ret;
+  return {HloOpcode::kSelect, HloOpcode::kClamp};
 }
 
 bool IsTritonSupportedElementwiseUpToFloatNormalization(

@@ -163,6 +163,9 @@ struct XlaBuilderFriend {
                              const Shape& shape, const ChannelHandle& handle,
                              bool is_host_transfer);
 
+  static XlaOp BuildDomain(XlaBuilder* builder, XlaOp operand, OpSharding entry,
+                           OpSharding exit, const Shape& shape);
+
   static XlaOp BuildRngGetAndUpdateState(XlaBuilder* builder, int64_t delta,
                                          const Shape& shape);
 

@@ -40,10 +40,7 @@ namespace xla::gpu {
 // tradeoff between performance and precision.
 //
 // This pass rewrites HloOpcode::kDot instructions based on their
-// PrecisionConfig algorithm enum (e.g. ALG_DOT_BF16_BF16_F32_X3). When
-// `fp8xn_only` is true, only ALG_DOT_BF16_BF16_FP8X3 and
-// ALG_DOT_BF16_BF16_FP8X4 dots are rewritten so the pass can run ahead of the
-// FP8 GemmRewriter.
+// PrecisionConfig algorithm enum (e.g. ALG_DOT_BF16_BF16_F32_X3).
 //
 // This class also provides static methods to emulate elementwise multiplication
 // with higher precision (e.g. MakeMultiplyForBF16BF16F32X3). These are used
@@ -51,9 +48,8 @@ namespace xla::gpu {
 // emitters like Triton.
 class DotAlgorithmRewriter : public HloModulePass {
  public:
-  explicit DotAlgorithmRewriter(se::GpuComputeCapability gpu_version,
-                                bool fp8xn_only = false)
-      : gpu_version_(gpu_version), fp8xn_only_(fp8xn_only) {}
+  explicit DotAlgorithmRewriter(se::GpuComputeCapability gpu_version)
+      : gpu_version_(gpu_version) {}
   absl::string_view name() const override { return "dot-algorithm-rewriter"; }
 
   static absl::StatusOr<HloInstruction*> MakeMultiplyForBF16BF16F32(
@@ -76,7 +72,6 @@ class DotAlgorithmRewriter : public HloModulePass {
 
  private:
   se::GpuComputeCapability gpu_version_;
-  bool fp8xn_only_;
 };
 
 }  // namespace xla::gpu

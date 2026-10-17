@@ -85,7 +85,7 @@ Future<> LoopbackCommunicator::AllReduce(se::DeviceAddressBase send_buffer,
                                          ReductionKind reduction_kind,
                                          const Executor& executor) {
   return Future<>(LaunchAllReduce(send_buffer, recv_buffer, dtype, count,
-                                  reduction_kind, executor, /*is_rma=*/false));
+                                  reduction_kind, executor));
 }
 
 Future<> LoopbackCommunicator::Broadcast(se::DeviceAddressBase send_buffer,
@@ -93,8 +93,8 @@ Future<> LoopbackCommunicator::Broadcast(se::DeviceAddressBase send_buffer,
                                          PrimitiveType dtype, size_t count,
                                          RankId root,
                                          const Executor& executor) {
-  return Future<>(LaunchBroadcast(send_buffer, recv_buffer, dtype, count, root,
-                                  executor, /*is_rma=*/false));
+  return Future<>(
+      LaunchBroadcast(send_buffer, recv_buffer, dtype, count, root, executor));
 }
 
 Future<> LoopbackCommunicator::ReduceScatter(se::DeviceAddressBase send_buffer,
@@ -103,16 +103,15 @@ Future<> LoopbackCommunicator::ReduceScatter(se::DeviceAddressBase send_buffer,
                                              ReductionKind reduction_kind,
                                              const Executor& executor) {
   return Future<>(LaunchReduceScatter(send_buffer, recv_buffer, dtype, count,
-                                      reduction_kind, executor,
-                                      /*is_rma=*/false));
+                                      reduction_kind, executor));
 }
 
 Future<> LoopbackCommunicator::AllGather(se::DeviceAddressBase send_buffer,
                                          se::DeviceAddressBase recv_buffer,
                                          PrimitiveType dtype, size_t count,
                                          const Executor& executor) {
-  return Future<>(LaunchAllGather(send_buffer, recv_buffer, dtype, count,
-                                  executor, /*is_rma=*/false));
+  return Future<>(
+      LaunchAllGather(send_buffer, recv_buffer, dtype, count, executor));
 }
 
 Future<> LoopbackCommunicator::AllToAll(
@@ -121,7 +120,7 @@ Future<> LoopbackCommunicator::AllToAll(
     PrimitiveType dtype, size_t count, const Executor& executor) {
   return Future<>(LaunchAllToAll(std::move(send_buffers),
                                  std::move(recv_buffers), dtype, count,
-                                 executor, /*is_rma=*/false));
+                                 executor));
 }
 
 Future<> LoopbackCommunicator::CollectivePermute(
@@ -153,7 +152,7 @@ Future<> LoopbackCommunicator::Recv(se::DeviceAddressBase recv_buffer,
 absl::Status LoopbackCommunicator::LaunchAllReduce(
     se::DeviceAddressBase send_buffer, se::DeviceAddressBase recv_buffer,
     PrimitiveType dtype, size_t count, ReductionKind reduction_kind,
-    const Executor& executor, bool is_rma) {
+    const Executor& executor) {
   VLOG(5) << absl::StreamFormat(
       "Loopback AllReduce: rank=%d, count=%d, bytes=%d", rank_, count,
       ByteSize(dtype, count));
@@ -163,8 +162,7 @@ absl::Status LoopbackCommunicator::LaunchAllReduce(
 // Broadcast: output = input.
 absl::Status LoopbackCommunicator::LaunchBroadcast(
     se::DeviceAddressBase send_buffer, se::DeviceAddressBase recv_buffer,
-    PrimitiveType dtype, size_t count, RankId root, const Executor& executor,
-    bool is_rma) {
+    PrimitiveType dtype, size_t count, RankId root, const Executor& executor) {
   return Memcpy(executor, recv_buffer, send_buffer, ByteSize(dtype, count));
 }
 
@@ -173,7 +171,7 @@ absl::Status LoopbackCommunicator::LaunchBroadcast(
 absl::Status LoopbackCommunicator::LaunchReduceScatter(
     se::DeviceAddressBase send_buffer, se::DeviceAddressBase recv_buffer,
     PrimitiveType dtype, size_t count, ReductionKind reduction_kind,
-    const Executor& executor, bool is_rma) {
+    const Executor& executor) {
   VLOG(5) << absl::StreamFormat(
       "Loopback ReduceScatter: rank=%d, count=%d, num_ranks=%d", rank_, count,
       num_ranks_);
@@ -188,7 +186,7 @@ absl::Status LoopbackCommunicator::LaunchReduceScatter(
 // per-rank element count, so the output has count * num_ranks elements.
 absl::Status LoopbackCommunicator::LaunchAllGather(
     se::DeviceAddressBase send_buffer, se::DeviceAddressBase recv_buffer,
-    PrimitiveType dtype, size_t count, const Executor& executor, bool is_rma) {
+    PrimitiveType dtype, size_t count, const Executor& executor) {
   VLOG(5) << absl::StreamFormat(
       "Loopback AllGather: rank=%d, count=%d, num_ranks=%d", rank_, count,
       num_ranks_);
@@ -206,7 +204,7 @@ absl::Status LoopbackCommunicator::LaunchAllGather(
 absl::Status LoopbackCommunicator::LaunchAllToAll(
     absl::InlinedVector<se::DeviceAddressBase, 4> send_buffers,
     absl::InlinedVector<se::DeviceAddressBase, 4> recv_buffers,
-    PrimitiveType dtype, size_t count, const Executor& executor, bool is_rma) {
+    PrimitiveType dtype, size_t count, const Executor& executor) {
   size_t size = ByteSize(dtype, count);
   for (size_t i = 0; i < send_buffers.size(); ++i) {
     ABSL_RETURN_IF_ERROR(Memcpy(executor, recv_buffers[i], send_buffers[i], size));

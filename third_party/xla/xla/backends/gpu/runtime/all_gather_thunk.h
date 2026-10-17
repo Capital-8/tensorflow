@@ -95,7 +95,8 @@ class AllGatherThunk : public CollectiveThunk {
 };
 
 absl::Status RunAllGather(std::vector<DeviceBufferPair>& buffers,
-                          se::Stream& stream, Communicator& comm);
+                          se::Stream& stream, Communicator& comm,
+                          bool use_symmetric_buffer = false);
 
 }  // namespace xla::gpu
 

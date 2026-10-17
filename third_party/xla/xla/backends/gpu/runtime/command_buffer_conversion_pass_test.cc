@@ -403,7 +403,7 @@ std::unique_ptr<CustomCallThunk> CreateSelectKThunk(
     const BufferAllocation& alloc_in, const BufferAllocation& alloc_out_val,
     const BufferAllocation& alloc_out_idx,
     const BufferAllocation& alloc_scratch, int64_t batch_size = 1,
-    int64_t num_elements = 4096, int64_t k = 32, bool use_pdl = false) {
+    int64_t num_elements = 4096, int64_t k = 32) {
   BufferAllocation::Slice slice_in(&alloc_in, 0, alloc_in.size());
   BufferAllocation::Slice slice_out_val(&alloc_out_val, 0,
                                         alloc_out_val.size());
@@ -426,9 +426,7 @@ std::unique_ptr<CustomCallThunk> CreateSelectKThunk(
   auto thunk = CustomCallThunk::Create(
       Thunk::ThunkInfo(), std::string(kTopKCustomCallTarget),
       std::move(operands), std::move(results), /*attributes=*/{},
-      /*called_computation=*/nullptr, "CUDA", se::GpuComputeCapability(),
-      /*execution_state=*/nullptr,
-      /*cpu_target_machine_options=*/std::nullopt, use_pdl);
+      /*called_computation=*/nullptr, "CUDA", se::GpuComputeCapability());
   CHECK_OK(thunk.status());
   return std::move(*thunk);
 }
@@ -530,7 +528,7 @@ TEST(CommandBufferConversionPassTest,
 
   thunks.push_back(CreateSelectKThunk(alloc_in, alloc_out_val, alloc_out_idx,
                                       alloc_scratch, kBatchSize, kNumElements,
-                                      kTopK, /*use_pdl=*/true));
+                                      kTopK));
 
   DebugOptions debug_options = xla::GetDebugOptionsFromFlags();
   debug_options.set_xla_gpu_graph_min_graph_size(1);
@@ -552,8 +550,6 @@ TEST(CommandBufferConversionPassTest,
   const auto& thunks_in_command_buffer =
       command_buffer_thunk->thunks()->thunks();
   EXPECT_THAT(thunks_in_command_buffer, ThunkKindsAre(Thunk::kCustomCall));
-  EXPECT_THAT(thunks.ToString(/*indent=*/0),
-              ::testing::HasSubstr("kCustomCall, use_pdl=true"));
 }
 
 TEST(CommandBufferConversionPassTest,

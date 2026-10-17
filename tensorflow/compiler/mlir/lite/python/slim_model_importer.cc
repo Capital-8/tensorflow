@@ -249,8 +249,7 @@ absl::StatusOr<OwningOpRef<ModuleOp>> LoadSlimModel(
     mlir::PassManager pm(context);
     pm.addPass(mlir::odml::CreateDropShapeAssertionsPass());
     pm.addPass(mlir::odml::CreateLegalizeVhloQuantCustomCallsPass());
-    // Upgrade VHLO to the current version, then legalize to StableHLO.
-    mlir::stablehlo::createStablehloDeserializePipeline(pm);
+    pm.addPass(mlir::stablehlo::createVhloLegalizeToStablehloPass());
     if (mlir::failed(pm.run(*module))) {
       return absl::InternalError("Failed to legalize VHLO to StableHLO.");
     }

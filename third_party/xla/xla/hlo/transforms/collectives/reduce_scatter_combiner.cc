@@ -44,6 +44,7 @@ limitations under the License.
 #include "xla/hlo/utils/hlo_query.h"
 #include "xla/service/collective_combiner_utils.h"
 #include "xla/service/collective_ops_utils.h"
+#include "xla/service/hlo_domain_map.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/status_macros.h"
@@ -185,9 +186,10 @@ absl::Status CombineReduceScatters(
 
 std::optional<ReduceScatterCombiner::GroupKey>
 ReduceScatterCombiner::CombineKey(const HloInstruction* instruction,
+                                  const HloDomainMap& domain_map,
                                   bool combine_by_dim) {
   auto* rs = DynCast<HloReduceScatterInstruction>(instruction);
-  std::optional<AllReduceKey> key = GetAllReduceKey(instruction);
+  std::optional<AllReduceKey> key = GetAllReduceKey(instruction, &domain_map);
 
   if (!rs || !key) {
     return std::nullopt;
@@ -205,7 +207,7 @@ absl::StatusOr<bool> ReduceScatterCombiner::RunWithKeyCombiner(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads,
     absl::FunctionRef<std::optional<ReduceScatterCombiner::GroupKey>(
-        const HloInstruction*, bool)>
+        const HloInstruction*, const HloDomainMap&, bool)>
         combine_key) {
   return RunWithKeyCombiner(module, execution_threads, combine_key, nullptr);
 }
@@ -214,7 +216,7 @@ absl::StatusOr<bool> ReduceScatterCombiner::RunWithKeyCombiner(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads,
     absl::FunctionRef<std::optional<ReduceScatterCombiner::GroupKey>(
-        const HloInstruction*, bool)>
+        const HloInstruction*, const HloDomainMap&, bool)>
         combine_key,
     PostCombineFn post_combine) {
   VLOG(1) << "Running ReduceScatterCombiner with threshold of "
@@ -242,9 +244,10 @@ absl::StatusOr<bool> ReduceScatterCombiner::RunWithKeyCombiner(
               << computation->ToString();
       continue;
     }
+    ABSL_ASSIGN_OR_RETURN(auto domain_map, HloDomainMap::Create(computation, ""));
 
     auto key_fn = [&](const HloInstruction* instruction) {
-      return combine_key(instruction, combine_by_dim_);
+      return combine_key(instruction, *domain_map, combine_by_dim_);
     };
     auto combine_fn =
         [&](absl::Span<HloInstruction* const> to_combine) -> absl::Status {

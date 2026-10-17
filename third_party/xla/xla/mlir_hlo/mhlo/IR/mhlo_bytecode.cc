@@ -167,8 +167,10 @@ enum AttributeCode {
   ///   }
   kTypeExtensionsAttr = 13,
 
-  // Reserved (was kDomainKindAttr).
-  kReserved14 = 14,
+  ///   DomainKindAttr {
+  ///     value: varint (encoded enum)
+  ///   }
+  kDomainKindAttr = 14,
 
   ///   FusionKindAttr {
   ///     value: varint (encoded enum)
@@ -273,6 +275,7 @@ class MhloBytecodeInterface : public BytecodeDialectInterface {
       DialectBytecodeReader& reader) const;
   ConvDimensionNumbersAttr readConvDimensionNumbersAttr(
       DialectBytecodeReader& reader) const;
+  DomainKindAttr readDomainKindAttr(DialectBytecodeReader& reader) const;
   DotDimensionNumbersAttr readDotDimensionNumbersAttr(
       DialectBytecodeReader& reader) const;
   FftTypeAttr readFftTypeAttr(DialectBytecodeReader& reader) const;
@@ -312,6 +315,7 @@ class MhloBytecodeInterface : public BytecodeDialectInterface {
   void write(ComparisonTypeAttr attr, DialectBytecodeWriter& writer) const;
   void write(ConvDimensionNumbersAttr attr,
              DialectBytecodeWriter& writer) const;
+  void write(DomainKindAttr attr, DialectBytecodeWriter& writer) const;
   void write(DotDimensionNumbersAttr attr, DialectBytecodeWriter& writer) const;
   void write(FftTypeAttr attr, DialectBytecodeWriter& writer) const;
   void write(FusionKindAttr attr, DialectBytecodeWriter& writer) const;
@@ -378,6 +382,8 @@ Attribute MhloBytecodeInterface::readAttribute(
       return readComparisonTypeAttr(reader);
     case mhlo_encoding::kConvDimensionNumbersAttr:
       return readConvDimensionNumbersAttr(reader);
+    case mhlo_encoding::kDomainKindAttr:
+      return readDomainKindAttr(reader);
     case mhlo_encoding::kDotDimensionNumbers:
       return readDotDimensionNumbersAttr(reader);
     case mhlo_encoding::kFftTypeAttr:
@@ -499,6 +505,14 @@ ConvDimensionNumbersAttr MhloBytecodeInterface::readConvDimensionNumbersAttr(
       inputSpatialDimensions, kernelInputFeatureDimension,
       kernelOutputFeatureDimension, kernelSpatialDimensions,
       outputBatchDimension, outputFeatureDimension, outputSpatialDimensions);
+}
+
+DomainKindAttr MhloBytecodeInterface::readDomainKindAttr(
+    DialectBytecodeReader& reader) const {
+  LOG_READ_CALL;
+  return hlo::bytecode::readEnumAttribute<DomainKindAttr>(
+      reader, getContext(),
+      [](uint32_t val) { return symbolizeDomainKind(val); });
 }
 
 DotDimensionNumbersAttr MhloBytecodeInterface::readDotDimensionNumbersAttr(
@@ -685,7 +699,7 @@ LogicalResult MhloBytecodeInterface::writeAttribute(
     Attribute attr, DialectBytecodeWriter& writer) const {
   return TypeSwitch<Attribute, LogicalResult>(attr)
       .Case<ArgResultAliasAttr, ComparisonDirectionAttr, ComparisonTypeAttr,
-            ConvDimensionNumbersAttr, ChannelHandleAttr,
+            ConvDimensionNumbersAttr, ChannelHandleAttr, DomainKindAttr,
             DotDimensionNumbersAttr, FftTypeAttr, FusionKindAttr,
             GatherDimensionNumbersAttr, OutputOperandAliasAttr,
             OriginalArrayAttr, OriginalValueAttr, OriginalValueElementAttr,
@@ -758,6 +772,12 @@ void MhloBytecodeInterface::write(ConvDimensionNumbersAttr attr,
   writer.writeSignedVarInt(attr.getOutputBatchDimension());
   writer.writeSignedVarInt(attr.getOutputFeatureDimension());
   writer.writeSignedVarInts(attr.getOutputSpatialDimensions());
+}
+
+void MhloBytecodeInterface::write(DomainKindAttr attr,
+                                  DialectBytecodeWriter& writer) const {
+  writer.writeVarInt(mhlo_encoding::kDomainKindAttr);
+  hlo::bytecode::writeEnumAttribute<DomainKind>(attr, writer);
 }
 
 void MhloBytecodeInterface::write(DotDimensionNumbersAttr attr,

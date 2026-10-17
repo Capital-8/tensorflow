@@ -31,7 +31,6 @@ package_group(
         "//tensorflow/core/runtime_fallback/...",
         # copybara:uncomment "//tensorflow_serving/...",
         # copybara:uncomment "//cloud/ai/platform/prediction/...",
-        # copybara:uncomment "//cloud/ml/api/translation/onprem/gdch/model_serving/...",
         # copybara:uncomment "//learning/brain/experimental/tfrt/...",
         # copybara:uncomment "//learning/brain/tfrt/...",
         # copybara:uncomment "//learning/infra/mira/...",

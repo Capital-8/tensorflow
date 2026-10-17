@@ -430,8 +430,7 @@ absl::Status HeapSimulator::RunComputation(
         continue;
       }
       if (options_.may_reuse_operand_buffers &&
-          hlo_buffer->values().size() == 1 &&
-          value->instruction()->opcode() != HloOpcode::kCopy) {
+          hlo_buffer->values().size() == 1) {
         // We don't support sharing an aliased buffer
         // (hlo_buffer->values().size() > 1) with its operand.
         for (const HloInstruction* operand : value->instruction()->operands()) {
@@ -468,15 +467,15 @@ absl::Status HeapSimulator::RunComputation(
               continue;
             }
 
-            // Only share with values that the user consumes through their
-            // defining instruction. The user may also read the value through
-            // other positions (e.g. a bitcast of it) or through several
-            // operands. All of them are backed by the same buffer, so every use
-            // of the value by the user has to allow sharing.
+            // The instruction that defines the operand value can be different
+            // from the actual operand, if directly passing the defining
+            // instruction into "CanShareOperandBufferWithUser" it creates a
+            // check failure. The first condition guards against that case.
             if (value->instruction()->IsUserOf(operand_value->instruction()) &&
-                dataflow_analysis.CanShareOperandValueBufferWithUser(
-                    *operand_value, value->instruction(), value->index(),
-                    alias_info)) {
+                value->instruction()->opcode() != HloOpcode::kCopy &&
+                dataflow_analysis.CanShareOperandBufferWithUser(
+                    operand_value->instruction(), operand_value->index(),
+                    value->instruction(), value->index(), alias_info)) {
               // Remove the operand buffer right before sharing (allocating) a
               // new one.
               Free(operand_value, operand_value->instruction());

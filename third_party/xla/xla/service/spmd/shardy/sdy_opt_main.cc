@@ -21,7 +21,6 @@ limitations under the License.
 #include "shardy/dialect/sdy/transforms/passes.h"
 #include "xla/mlir_hlo/mhlo/IR/register.h"
 #include "xla/mlir_hlo/stablehlo_ext/transforms/passes.h"
-#include "xla/service/spmd/shardy/extensions/custom_call_extensions.h"
 #include "xla/service/spmd/shardy/extensions/mhlo_extensions.h"
 #include "xla/service/spmd/shardy/round_trip_common/import_constants.h"
 #include "xla/service/spmd/shardy/round_trip_common/import_sdy_custom_calls.h"
@@ -51,7 +50,6 @@ int main(int argc, char** argv) {
   mlir::func::registerAllExtensions(dialects);
   mlir::mhlo::registerAllMhloDialects(dialects);
   xla::sdy::registerMhloExtensions(dialects);
-  xla::sdy::registerCustomCallExtensions(dialects);
 
   // Register all SDY passes and pipelines.
   mlir::sdy::registerAllSdyPassesAndPipelines();

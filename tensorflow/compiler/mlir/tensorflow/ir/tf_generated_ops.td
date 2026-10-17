@@ -4284,11 +4284,6 @@ def TF_DivOp : TF_Op<"Div", [Pure, ResultsBroadcastableShape, TF_SameOperandsAnd
   let description = [{
 *NOTE*: `Div` supports broadcasting. More about broadcasting
 [here](http://docs.scipy.org/doc/numpy/user/basics.broadcasting.html)
-
-For signed integer types, dividing the minimum representable value by `-1`
-(e.g. `int_min / -1`) overflows the signed integer range and wraps around to
-the minimum signed integer value in two's complement arithmetic rather than
-raising an exception.
   }];
 
   let arguments = (ins
@@ -5846,11 +5841,6 @@ def TF_FloorDivOp : TF_Op<"FloorDiv", [Pure, ResultsBroadcastableShape]>,
   let description = [{
 *NOTE*: `FloorDiv` supports broadcasting. More about broadcasting
 [here](http://docs.scipy.org/doc/numpy/user/basics.broadcasting.html)
-
-For signed integer types, dividing the minimum representable value by `-1`
-(e.g. `int_min / -1`) overflows the signed integer range and wraps around to
-the minimum signed integer value in two's complement arithmetic rather than
-raising an exception.
   }];
 
   let arguments = (ins
@@ -20417,11 +20407,6 @@ Python Semantics.
 
 *NOTE*: `TruncateDiv` supports broadcasting. More about broadcasting
 [here](http://docs.scipy.org/doc/numpy/user/basics.broadcasting.html)
-
-For signed integer types, dividing the minimum representable value by `-1`
-(e.g. `int_min / -1`) overflows the signed integer range and wraps around to
-the minimum signed integer value in two's complement arithmetic rather than
-raising an exception.
   }];
 
   let arguments = (ins

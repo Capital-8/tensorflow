@@ -39,6 +39,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/primitive_util.h"
 #include "xla/service/gpu/cublas_cudnn.h"
+#include "xla/service/hlo.pb.h"
 #include "xla/shape.h"
 #include "xla/stream_executor/device_address.h"
 #include "xla/tsl/platform/logging.h"
@@ -74,17 +75,13 @@ absl::Status EstimateCubSortScratchSize::RunOnSortInstruction(
   ABSL_ASSIGN_OR_RETURN(SortOptions sort_options,
                    custom_call->backend_config<SortOptions>());
 
-  // Determine FFI handler target names for compile-time scratch estimation vs.
-  // runtime execution.
-  absl::string_view instantiate_target =
-      is_pairs ? kCubDeviceRadixSortPairsUnassignedScratchSizeTarget
-               : kCubDeviceRadixSortKeysUnassignedScratchSizeTarget;
-  absl::string_view execute_target =
+  // Determine FFI handler target name.
+  absl::string_view ffi_target =
       is_pairs ? kCubDeviceRadixSortPairsTarget : kCubDeviceRadixSortKeysTarget;
 
-  // Look up the registered FFI instantiate handler.
+  // Look up the registered FFI handler.
   ABSL_ASSIGN_OR_RETURN(ffi::HandlerRegistration registration,
-                   ffi::FindHandler(instantiate_target, platform_name_));
+                   ffi::FindHandler(ffi_target, platform_name_));
 
   int64_t num_items = Product(key_shape.dimensions());
   int64_t batch_size = num_items / key_shape.dimensions().back();
@@ -139,7 +136,7 @@ absl::Status EstimateCubSortScratchSize::RunOnSortInstruction(
       int64_t scratch_size,
       InvokeInstantiateHandlerAndGetScratchSize(registration, builder.Build()));
 
-  return CreateCubSortCustomCall(custom_call, scratch_size, execute_target,
+  return CreateCubSortCustomCall(custom_call, scratch_size, ffi_target,
                                  sort_options.descending(), batch_size);
 }
 

@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XLA_SERVICE_HLO_CSE_CONSTANT_KEY_H_
 #define XLA_SERVICE_HLO_CSE_CONSTANT_KEY_H_
 
+#include <cstdint>
 #include <utility>
 
 #include "absl/base/attributes.h"
@@ -27,24 +28,28 @@ template <bool kIsLayoutSensitive>
 struct CseConstantKey {
   template <typename H>
   friend H AbslHashValue(H h, const CseConstantKey& key) {
+    h = H::combine(std::move(h), key.domain);
     h = Shape::Hash<H, kIsLayoutSensitive>(std::move(h), key.shape);
     return Literal::Hash<H, kIsLayoutSensitive, /*kByteLimit=*/64>(std::move(h),
                                                                    key.literal);
   }
   friend bool operator==(const CseConstantKey& lhs, const CseConstantKey& rhs) {
-    return (kIsLayoutSensitive
+    return lhs.domain == rhs.domain &&
+           (kIsLayoutSensitive
                 ? Shape::Equal()
                 : Shape::Equal().IgnoreLayout())(lhs.shape, rhs.shape) &&
            lhs.literal.Equal(rhs.literal, kIsLayoutSensitive);
   }
   template <typename Sink>
   friend void AbslStringify(Sink& sink, const CseConstantKey& key) {
-    absl::Format(&sink, "literal: %s, shape: %s", key.literal.ToString(),
-                 key.shape.ToString(kIsLayoutSensitive));
+    absl::Format(&sink, "literal: %s, shape: %s, domain: %d",
+                 key.literal.ToString(), key.shape.ToString(kIsLayoutSensitive),
+                 key.domain);
   }
 
   const Literal& literal ABSL_REQUIRE_EXPLICIT_INIT;
   const Shape& shape ABSL_REQUIRE_EXPLICIT_INIT;
+  int64_t domain ABSL_REQUIRE_EXPLICIT_INIT;
 };
 }  // namespace xla
 

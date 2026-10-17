@@ -69,11 +69,10 @@ struct BandwidthEntry {
 
 constexpr int kHbmBandwidthTableEntries = 21;
 
-// TODO(b/553466640): Consider replacing empirical per-GPU lookup tables with
-// an analytical Hockney curve.
+// TODO(b/547746872): Add tooling to measure and generate bandwidth derate
+// tables in a reproducible manner.
 // Empirical HBM bandwidth scaling tables mapping transfer size in bytes to
-// fraction of peak bandwidth [0.0, 1.0]. New tables can be calibrated with
-// xla/tools/cost_model:gpu_bandwidth_benchmark_main.
+// fraction of peak bandwidth [0.0, 1.0].
 constexpr std::array<BandwidthEntry, kHbmBandwidthTableEntries>
     kAmpereScaledHbmBandwidthTable = {
         {{8192, 0.00043418f},       {16384, 0.00092645f},

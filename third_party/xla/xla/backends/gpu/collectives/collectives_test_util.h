@@ -46,8 +46,7 @@ absl::StatusOr<std::vector<std::unique_ptr<GpuCommunicator>>>
 CreateCommunicators(absl::Span<se::StreamExecutor* const> executors,
                     std::vector<GlobalDeviceId> device_ids,
                     bool blocking = true, size_t num_ids = 1,
-                    GpuCollectives* custom_backend = nullptr,
-                    bool use_minimal_resource = false);
+                    GpuCollectives* custom_backend = nullptr);
 
 absl::StatusOr<std::vector<std::unique_ptr<GpuCommunicator>>>
 SplitCommunicators(

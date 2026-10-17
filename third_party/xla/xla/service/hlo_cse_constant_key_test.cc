@@ -74,12 +74,16 @@ TYPED_TEST(HloCseConstantKeyTest, VerifyAbslHashIsImplementedCorrectly) {
                      // instruction's shape.
       ShapeUtil::MakeShape(F32, {3, 4, 5}),
   };
+  constexpr std::array<int, 3> kDomains = {0, 1, 2};
+
   std::vector<ConstantKey> keys;
-  keys.reserve(literals.size() * shapes.size());
+  keys.reserve(literals.size() * kDomains.size() * shapes.size());
   for (const Literal& literal : literals) {
     for (const std::optional<Shape>& shape : shapes) {
-      keys.push_back(
-          ConstantKey{literal, shape.has_value() ? *shape : literal.shape()});
+      for (const int domain : kDomains) {
+        keys.push_back(ConstantKey{
+            literal, shape.has_value() ? *shape : literal.shape(), domain});
+      }
     }
   }
   EXPECT_TRUE(absl::VerifyTypeImplementsAbslHashCorrectly(keys));

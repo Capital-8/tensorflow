@@ -38,6 +38,7 @@ limitations under the License.
 #include "xla/hlo/utils/hlo_query.h"
 #include "xla/hlo/utils/hlo_sharding_util.h"
 #include "xla/service/collective_combiner_utils.h"
+#include "xla/service/hlo_domain_map.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/side_effect_util.h"
@@ -121,8 +122,9 @@ absl::Status CombineAllReduces(
 }
 
 /*static*/ std::optional<AllReduceCombiner::GroupKey>
-AllReduceCombiner::CombineKey(const HloInstruction* instruction) {
-  std::optional<AllReduceKey> key = GetAllReduceKey(instruction);
+AllReduceCombiner::CombineKey(const HloInstruction* instruction,
+                              const HloDomainMap& domain_map) {
+  std::optional<AllReduceKey> key = GetAllReduceKey(instruction, &domain_map);
   if (!key.has_value()) {
     return std::nullopt;
   }
@@ -132,8 +134,8 @@ AllReduceCombiner::CombineKey(const HloInstruction* instruction) {
 absl::StatusOr<bool> AllReduceCombiner::RunWithKeyCombiner(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads,
-    absl::FunctionRef<
-        std::optional<AllReduceCombiner::GroupKey>(const HloInstruction*)>
+    absl::FunctionRef<std::optional<AllReduceCombiner::GroupKey>(
+        const HloInstruction*, const HloDomainMap&)>
         combine_key) {
   return RunWithKeyCombiner(module, execution_threads, combine_key, nullptr);
 }
@@ -141,8 +143,8 @@ absl::StatusOr<bool> AllReduceCombiner::RunWithKeyCombiner(
 absl::StatusOr<bool> AllReduceCombiner::RunWithKeyCombiner(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads,
-    absl::FunctionRef<
-        std::optional<AllReduceCombiner::GroupKey>(const HloInstruction*)>
+    absl::FunctionRef<std::optional<AllReduceCombiner::GroupKey>(
+        const HloInstruction*, const HloDomainMap&)>
         combine_key,
     PostCombineFn post_combine) {
   VLOG(1) << "Running AllReduceCombiner with threshold of "
@@ -162,7 +164,9 @@ absl::StatusOr<bool> AllReduceCombiner::RunWithKeyCombiner(
   bool changed = false;
   for (HloComputation* computation :
        module->MakeNonfusionComputations(execution_threads)) {
-    auto key_fn = [&combine_key](const HloInstruction* instruction)
+    ABSL_ASSIGN_OR_RETURN(auto domain_map, HloDomainMap::Create(computation, ""));
+
+    auto key_fn = [&domain_map, &combine_key](const HloInstruction* instruction)
         -> std::optional<AllReduceCombiner::GroupKey> {
       if (instruction->opcode() != HloOpcode::kAllReduce ||
           (instruction->has_frontend_attributes() &&
@@ -170,7 +174,7 @@ absl::StatusOr<bool> AllReduceCombiner::RunWithKeyCombiner(
                kXlaSchedulingGroupIdAttr))) {
         return std::nullopt;
       }
-      return combine_key(instruction);
+      return combine_key(instruction, *domain_map);
     };
 
     ABSL_ASSIGN_OR_RETURN(

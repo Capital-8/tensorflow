@@ -29,15 +29,16 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/transforms/collectives/all_reduce_combiner.h"
 #include "xla/service/gpu/backend_configs.pb.h"
+#include "xla/service/hlo_domain_map.h"
 #include "xla/tsl/platform/statusor.h"
 
 namespace xla::gpu {
 namespace {
 
 std::optional<AllReduceCombiner::GroupKey> DefaultCombinerKey(
-    const HloInstruction* instruction) {
+    const HloInstruction* instruction, const HloDomainMap& domain_map) {
   std::optional<AllReduceCombiner::GroupKey> key =
-      AllReduceCombiner::CombineKey(instruction);
+      AllReduceCombiner::CombineKey(instruction, domain_map);
   if (!key.has_value()) {
     return std::nullopt;
   }
@@ -52,9 +53,9 @@ std::optional<AllReduceCombiner::GroupKey> DefaultCombinerKey(
 }
 
 std::optional<AllReduceCombiner::GroupKey> CustomCombinerKey(
-    const HloInstruction* instruction) {
+    const HloInstruction* instruction, const HloDomainMap& domain_map) {
   std::optional<AllReduceCombiner::GroupKey> key =
-      AllReduceCombiner::CombineKey(instruction);
+      AllReduceCombiner::CombineKey(instruction, domain_map);
   if (!key.has_value()) {
     return std::nullopt;
   }

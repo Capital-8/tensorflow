@@ -44,8 +44,6 @@ class VecOpsSimpleTest : public ClientLibraryTestRunnerMixin<
  public:
   VecOpsSimpleTest() {
     mutable_debug_options()->add_xla_disable_hlo_passes("algsimp");
-    mutable_debug_options()->add_xla_disable_hlo_passes(
-        "gpu-algebraic-simplifier");
     mutable_debug_options()->add_xla_disable_hlo_passes("inline");
   }
 };

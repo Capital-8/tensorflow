@@ -16,13 +16,12 @@ limitations under the License.
 #include "xla/codegen/emitters/transforms/atomic_rmw_utils.h"
 
 #include <optional>
+#include <utility>
 
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/ADT/ilist.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Region.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/UseDefLists.h"
 #include "mlir/IR/Value.h"
@@ -95,54 +94,10 @@ Value LookThroughExtF(Value value) {
   return value;
 }
 
-std::optional<AtomicModifierParameters> MatchAtomicModifier(
-    Operation* modifier_op, Value lhs, Value rhs, Value block_arg,
-    Type element_type) {
-  bool negated = false;
-  ml::AtomicBinOp bin_op;
-  Value modifier_arg;
-  // `subf(current, x)` comes from canonicalizing
-  // `addf(current, negf(x))`.
-  if (llvm::isa<arith::SubFOp>(modifier_op)) {
-    if (lhs != block_arg || rhs == block_arg) {
-      return std::nullopt;
-    }
-    modifier_arg = rhs;
-    bin_op = ml::AtomicBinOp::fadd;
-    negated = true;
-  } else {
-    const auto kind = GetAtomicBinOp(modifier_op, element_type);
-    if (!kind.has_value()) {
-      return std::nullopt;
-    }
-    bin_op = *kind;
-    if (lhs == block_arg) {
-      modifier_arg = rhs;
-    } else if (rhs == block_arg) {
-      modifier_arg = lhs;
-    } else {
-      return std::nullopt;
-    }
-  }
-  Type modifier_type = modifier_arg.getType();
-  bool is_matching_vector =
-      llvm::isa<mlir::VectorType>(modifier_type) &&
-      llvm::cast<mlir::VectorType>(modifier_type).getElementType() ==
-          element_type;
-  if (modifier_type != element_type && !is_matching_vector) {
-    return std::nullopt;
-  }
-  // A value defined inside the atomic body would be erased when the body is
-  // replaced. Keep only values defined outside the computation.
-  if (block_arg.getParentRegion()->isAncestor(modifier_arg.getParentRegion())) {
-    return std::nullopt;
-  }
-  return AtomicModifierParameters{modifier_arg, bin_op, negated};
-}
-
 }  // namespace
 
-std::optional<AtomicModifierParameters> GetAtomicModifierParameters(
+// Returns atomic op modifier and the atomic bin op kind.
+std::optional<std::pair<Value, ml::AtomicBinOp>> GetAtomicModifierParameters(
     AtomicRMWOp op) {
   Type element_type = op.getInput().getType().getElementType();
   auto& operations = op.getBody()->getOperations();
@@ -153,8 +108,7 @@ std::optional<AtomicModifierParameters> GetAtomicModifierParameters(
   if (operations.size() == 1) {
     // TODO(b/336367145): Support complex<f32> atomic store.
     if (element_type.isF32() || IsAtomicIntegral(element_type)) {
-      return AtomicModifierParameters{terminator->getOperand(0),
-                                      ml::AtomicBinOp::xchg};
+      return std::make_pair(terminator->getOperand(0), ml::AtomicBinOp::xchg);
     }
     return std::nullopt;
   }
@@ -163,17 +117,16 @@ std::optional<AtomicModifierParameters> GetAtomicModifierParameters(
   // operating directly on the atomic element type.
   if (operations.size() == 2) {
     mlir::Operation* modifier_op = &operations.front();
-    if (modifier_op->getNumResults() != 1 ||
-        modifier_op->getNumOperands() != 2 ||
-        terminator->getNumOperands() != 1) {
+    auto kind = GetAtomicBinOp(modifier_op, element_type);
+    if (!kind.has_value()) {
       return std::nullopt;
     }
-    if (terminator->getOperand(0) != modifier_op->getResult(0)) {
-      return std::nullopt;
-    }
-    return MatchAtomicModifier(modifier_op, modifier_op->getOperand(0),
-                               modifier_op->getOperand(1), block_arg,
-                               element_type);
+    // Find the modifier arg that does not match the argument of `atomic_rmw`
+    // body.
+    Value modifier_arg = modifier_op->getOperand(0) == block_arg
+                             ? modifier_op->getOperand(1)
+                             : modifier_op->getOperand(0);
+    return std::make_pair(modifier_arg, *kind);
   }
 
   // Widened low-precision case (e.g. bf16): the reduction is computed in a
@@ -201,9 +154,26 @@ std::optional<AtomicModifierParameters> GetAtomicModifierParameters(
   if (!modifier_op || modifier_op->getNumOperands() != 2) {
     return std::nullopt;
   }
+  auto kind = GetAtomicBinOp(modifier_op, element_type);
+  if (!kind.has_value()) {
+    return std::nullopt;
+  }
   Value lhs = LookThroughExtF(modifier_op->getOperand(0));
   Value rhs = LookThroughExtF(modifier_op->getOperand(1));
-  return MatchAtomicModifier(modifier_op, lhs, rhs, block_arg, element_type);
+  Value modifier_arg;
+  if (lhs == block_arg) {
+    modifier_arg = rhs;
+  } else if (rhs == block_arg) {
+    modifier_arg = lhs;
+  } else {
+    return std::nullopt;
+  }
+  // The recovered modifier must have the atomic element type for the downstream
+  // direct-atomic emission to be valid.
+  if (modifier_arg.getType() != element_type) {
+    return std::nullopt;
+  }
+  return std::make_pair(modifier_arg, *kind);
 }
 
 }  // namespace emitters

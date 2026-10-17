@@ -26,18 +26,14 @@ limitations under the License.
 
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
-#include "absl/log/check.h"
-#include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/MathExtras.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
 #include "xla/backends/gpu/codegen/emitters/mlir_kernel_emitter.h"
 #include "xla/backends/gpu/codegen/fusion_emitter.h"
 #include "xla/backends/gpu/codegen/fusions.h"
-#include "xla/codegen/tiling/tile.h"
 #include "xla/codegen/tiling/tiled_hlo.h"
 #include "xla/hlo/analysis/indexing_analysis.h"
 #include "xla/hlo/analysis/indexing_map.h"
@@ -118,24 +114,15 @@ double BandwidthUtilizationRateHeuristicForTiledMemoryAccess(
   const HloInstruction* hlo = hbm_access_instr.hlo();
   const Shape& shape = hlo->shape();
 
-  absl::StatusOr<llvm::SmallVector<int64_t>> tile_sizes =
-      hbm_access_instr.tile(0).GetStaticTileSizes();
-  CHECK_OK(tile_sizes);
-  absl::StatusOr<llvm::SmallVector<int64_t>> tile_strides =
-      hbm_access_instr.tile(0).GetStaticTileStrides();
-  CHECK_OK(tile_strides);
-
   // Compute the number of elements in the contiguous part of the tile.
   int64_t contiguous_elements = 1;
   for (const auto dim_idx : shape.layout().minor_to_major()) {
     // This dimension is strided, so it's not contiguous.
-    CHECK_LT(dim_idx, tile_strides->size());
-    if ((*tile_strides)[dim_idx] != 1) {
+    if (hbm_access_instr.tile_stride(dim_idx) != 1) {
       break;
     }
 
-    CHECK_LT(dim_idx, tile_sizes->size());
-    int64_t tile_size = (*tile_sizes)[dim_idx];
+    int64_t tile_size = hbm_access_instr.tile_size(dim_idx);
     int64_t dim_size = shape.dimensions(dim_idx);
 
     // Make sure to ignore the mask if there is one.

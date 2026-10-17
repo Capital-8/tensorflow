@@ -126,11 +126,6 @@ class FirstComeFirstServedTaskRunner : public TaskRunner {
                        GetElementResult& result) override;
   absl::Status GetNext(GetElementResult& result);
 
-  // Returns true if the next element (or an error) has already been produced,
-  // so `GetNext` returns it without waiting for the input iterator, unless a
-  // concurrent `GetNext` call takes it first.
-  bool HasPrefetchedElement() const;
-
   void Cancel() override;
 
   std::shared_ptr<model::Model> model() const override;
@@ -171,12 +166,8 @@ class CachingTaskRunner : public TaskRunner {
                              size_t max_cache_size_bytes);
   ~CachingTaskRunner() override;
 
-  // Gets the next element from the cross-trainer cache. If the element is not
-  // ready, blocks until it is, unless `req.allow_skip()` is true and the input
-  // pipeline has not produced the element yet. In that case, sets
-  // `result.skip` instead of blocking, like `FirstComeFirstServedTaskRunner`.
-  // Skipping is best effort: if a concurrent request with the same trainer ID
-  // takes the element first, this call blocks for the next one.
+  // Gets the next element from the cross-trainer cache, blocking if the data is
+  // not ready.
   // REQUIRES: !req.trainer_id().empty()
   absl::Status GetNext(const GetElementRequest& req,
                        GetElementResult& result) override;

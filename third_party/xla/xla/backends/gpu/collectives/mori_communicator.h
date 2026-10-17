@@ -43,6 +43,8 @@ class CollectivesFacade;
 
 namespace xla::gpu {
 
+class MoriCollectives;
+
 // Dummy symmetric memory for the MORI backend. MORI collective buffers are
 // allocated directly from the symmetric shmem heap, so the local device
 // address doubles as the symmetric handle and no separate registration is
@@ -67,11 +69,12 @@ class MoriSymmetricMemory : public SymmetricMemory {
 // XLA collectives communicator wrapping a MORI communicator.
 class MoriCommunicator : public GpuCommunicator {
  public:
+  friend class MoriCollectives;
   ~MoriCommunicator() override;
 
   static absl::StatusOr<std::unique_ptr<MoriCommunicator>> Create(
-      std::shared_ptr<CancellationToken> cancel, int rank,
-      absl::Span<const int> rank_to_pe);
+      MoriCollectives* coll, std::shared_ptr<CancellationToken> cancel,
+      int rank, absl::Span<const int> rank_to_pe);
 
   // MoriCommunicator is not copyable or movable.
   MoriCommunicator(const MoriCommunicator&) = delete;
@@ -84,7 +87,7 @@ class MoriCommunicator : public GpuCommunicator {
   absl::StatusOr<size_t> CurrentRank() final;
 
   absl::StatusOr<std::unique_ptr<SymmetricMemory>> CreateSymmetricMemory(
-      se::DeviceAddressBase addr, bool symmetric_window) final {
+      se::DeviceAddressBase addr, bool symmetric_window = false) final {
     // Dummy implementation: MORI buffers are already allocated from the
     // symmetric shmem heap, so the local device address is the symmetric
     // handle. Just wrap and return it unchanged.
@@ -142,12 +145,12 @@ class MoriCommunicator : public GpuCommunicator {
                                se::DeviceAddressBase recv_buffer,
                                PrimitiveType dtype, size_t count,
                                ReductionKind reduction_kind,
-                               const Executor& executor, bool is_rma) final;
+                               const Executor& executor) final;
 
   absl::Status LaunchBroadcast(se::DeviceAddressBase send_buffer,
                                se::DeviceAddressBase recv_buffer,
                                PrimitiveType dtype, size_t count, RankId root,
-                               const Executor& executor, bool is_rma) final {
+                               const Executor& executor) final {
     return absl::UnimplementedError("Not implemented");
   }
 
@@ -155,18 +158,17 @@ class MoriCommunicator : public GpuCommunicator {
                                    se::DeviceAddressBase recv_buffer,
                                    PrimitiveType dtype, size_t count,
                                    ReductionKind reduction_kind,
-                                   const Executor& executor, bool is_rma) final;
+                                   const Executor& executor) final;
 
   absl::Status LaunchAllGather(se::DeviceAddressBase send_buffer,
                                se::DeviceAddressBase recv_buffer,
                                PrimitiveType dtype, size_t count,
-                               const Executor& executor, bool is_rma) final;
+                               const Executor& executor) final;
 
   absl::Status LaunchAllToAll(
       absl::InlinedVector<se::DeviceAddressBase, 4> send_buffers,
       absl::InlinedVector<se::DeviceAddressBase, 4> recv_buffers,
-      PrimitiveType dtype, size_t count, const Executor& executor,
-      bool is_rma) final;
+      PrimitiveType dtype, size_t count, const Executor& executor) final;
 
   absl::Status LaunchCollectivePermute(se::DeviceAddressBase send_buffer,
                                        se::DeviceAddressBase recv_buffer,
@@ -193,11 +195,19 @@ class MoriCommunicator : public GpuCommunicator {
   // Executes f on executor_, or calls f directly if executor_ is null.
   Future<> Execute(absl::AnyInvocable<absl::Status() &&> f) const;
 
-  MoriCommunicator(std::shared_ptr<CancellationToken> cancel)
-      : cancel_(std::move(cancel)) {}
+  MoriCommunicator(MoriCollectives* coll,
+                   std::shared_ptr<CancellationToken> cancel)
+      : collectives_(coll), cancel_(std::move(cancel)) {}
 
-  // CollectivesFacade instance for this communicator's device
-  std::unique_ptr<mori::collective::CollectivesFacade> facade_;
+  MoriCollectives* collectives_;  // Parent MoriCollectives instance
+
+  // `rank_` is this rank within the collective, `num_ranks_` the participant
+  // count. MoriCollectives only creates communicators over the global MORI
+  // clique, so these match the facade's PE id and PE count.
+  int rank_ = 0;
+  int num_ranks_ = 0;
+  // Non-owning; the CollectivesFacade singleton for this communicator's device.
+  mori::collective::CollectivesFacade* facade_ = nullptr;
   // Should all pending collectives cancel?
   std::shared_ptr<CancellationToken> cancel_;
   bool aborted_ = false;  // Has Abort() been called?

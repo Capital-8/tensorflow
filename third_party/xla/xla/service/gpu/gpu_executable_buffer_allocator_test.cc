@@ -144,7 +144,8 @@ class GpuExecutableBufferAllocatorTest : public ::testing::Test {
                                                   &allocator_,
                                                   /*device_ordinal=*/0));
     return scope->GenerateBufferAllocations(
-        &service_run_options_, get_parameter_buffer, &globals_, &allocator_);
+        &service_run_options_, get_parameter_buffer, &globals_, &allocator_,
+        /*device_ordinal=*/0);
   }
 
   NiceMock<se::MockPlatform> platform_;

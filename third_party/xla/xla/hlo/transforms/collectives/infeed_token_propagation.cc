@@ -590,6 +590,12 @@ absl::StatusOr<bool> InfeedTokenPropagation::RunImpl(
        module->MakeNonfusionComputations(execution_threads)) {
     if (!computation->IsEntryComputation()) {
       for (HloInstruction* instruction : computation->instructions()) {
+        // Bail in the presence of HLO domains.
+        if (instruction->opcode() == HloOpcode::kDomain) {
+          return false;
+        }
+      }
+      for (HloInstruction* instruction : computation->instructions()) {
         if (instruction->opcode() == HloOpcode::kInfeed &&
             instruction->infeed_config().empty() &&
             IsDanglingInfeed(instruction)) {

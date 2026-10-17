@@ -517,11 +517,11 @@ auto BcastConstScalarNear(double value) {
         double epsilon;
         switch (instr->shape().element_type()) {
           case F16:
-            return *actual ==
-                   static_cast<double>(static_cast<Eigen::half>(expected));
+            epsilon = 128 * std::numeric_limits<Eigen::half>::epsilon();
+            break;
           case BF16:
-            return *actual ==
-                   static_cast<double>(static_cast<bfloat16>(expected));
+            epsilon = 128 * std::numeric_limits<bfloat16>::epsilon();
+            break;
           case F32:
             epsilon = 128 * std::numeric_limits<float>::epsilon();
             break;

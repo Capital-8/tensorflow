@@ -90,12 +90,11 @@ class RandomNormalTest(RandomOpTestCommon):
       y = sampler()
       # Number of different samples.
       count = (x == y).sum()
-      count_limit = 50 if dt in (dtypes.float16, dtypes.bfloat16) else 10
-      if count >= count_limit:
+      if count >= 10:
         print("x = ", x)
         print("y = ", y)
         print("count = ", count)
-      self.assertLess(count, count_limit)
+      self.assertTrue(count < 10)
 
   # Checks that the CPU and GPU implementation returns the same results,
   # given the same random seed
@@ -193,12 +192,11 @@ class TruncatedNormalTest(test.TestCase):
         y = sampler()
         # Number of different samples.
         count = (x == y).sum()
-        count_limit = 50 if dt in (dtypes.float16, dtypes.bfloat16) else 10
-        if count >= count_limit:
+        if count >= 10:
           print("x = ", x)
           print("y = ", y)
           print("count = ", count)
-        self.assertLess(count, count_limit)
+        self.assertTrue(count < 10)
 
   # Checks that the CPU and GPU implementation returns the same results,
   # given the same random seed
@@ -320,12 +318,12 @@ class RandomUniformTest(RandomOpTestCommon):
       if dt == dtypes.float16:
         count_limit = 50
       elif dt == dtypes.bfloat16:
-        count_limit = 150
+        count_limit = 90
       if count >= count_limit:
         print("x = ", x)
         print("y = ", y)
         print("count = ", count)
-      self.assertLess(count, count_limit)
+      self.assertTrue(count < count_limit)
 
   @test_util.run_deprecated_v1
   def testUniformIntsWithInvalidShape(self):

@@ -64,7 +64,6 @@ cc_library(
     hdrs = ["hlo_computation_graph_matcher.h"],
     deps = [
         ":bipartite_matching",
-        "//xla:shape_util",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/tools/hlo_diff:hlo_gumgraph_mappings",
         "//xla/hlo/tools/hlo_diff/graph:hlo_gumgraph",

@@ -403,7 +403,6 @@ cc_library(
         ":kernel_arguments",
         ":utils",
         "//xla:shape_util",
-        "//xla:status_macros",
         "//xla:util",
         "//xla/codegen:hlo_fusion_spec",
         "//xla/codegen:kernel_emitter",

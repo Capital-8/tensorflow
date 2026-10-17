@@ -256,7 +256,6 @@ tf_cc_test(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",
         "@stablehlo//:stablehlo_ops",
-        "@stablehlo//:vhlo_ops",
         "@xla//xla/tsl/platform:env",
     ],
 )

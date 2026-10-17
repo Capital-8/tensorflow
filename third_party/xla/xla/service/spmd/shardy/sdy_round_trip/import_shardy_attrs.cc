@@ -337,8 +337,6 @@ void convertShardyAttrsWithHloShardingV3(FuncOp funcOp) {
           targetName == "X64Combine" ||
           targetName == kGlobalToLocalShapeCallTargetName ||
           targetName == kLocalToGlobalShapeCallTargetName ||
-          targetName == kComputeOnStartTargetName ||
-          targetName == kComputeOnDoneTargetName ||
           isPythonCallbackCustomCall(customCallOp)) {
         HloSharding hloSharding = parseShardingFromString(shardingAttr);
         if (auto sdySharding = convertToSdySharding(
@@ -467,17 +465,12 @@ void convertShardyAttrsWithoutHloShardingV3(FuncOp funcOp,
         return;
       }
       if (targetName == kShardingCustomCallTargetName ||
-          targetName == kComputeOnStartTargetName ||
-          targetName == kComputeOnDoneTargetName ||
           isPythonCallbackCustomCall(customCallOp)) {
-        // Attach the sharding attribute only if `xla.sdy.sharding` is present,
-        // since `compute-on-start` custom calls may carry other frontend
-        // attributes.
-        if (auto sharding = parseStringAttr<TensorShardingPerValueAttr>(
+        customCallOp->setAttr(
+            kShardingAttr,
+            parseStringAttr<TensorShardingPerValueAttr>(
                 dictAttr,
-                xla::ToStringRef(HloSharding::kShardingFrontendAttrName))) {
-          customCallOp->setAttr(kShardingAttr, sharding);
-        }
+                xla::ToStringRef(HloSharding::kShardingFrontendAttrName)));
       }
     }
 
@@ -542,33 +535,15 @@ LogicalResult handleFuncTupleInOutShardings(ModuleOp moduleOp, FuncOp funcOp,
   return mlir::success();
 }
 
-// Returns the callee name if `op` is a `compute-on-start` custom call with a
-// single `called_computations` entry.
-std::optional<StringRef> getComputeOnStartCalleeName(Operation* op) {
-  auto customCallOp = mlir::dyn_cast<CustomCallOp>(op);
-  if (!customCallOp ||
-      customCallOp.getCallTargetName() != kComputeOnStartTargetName) {
-    return std::nullopt;
-  }
-  mlir::ArrayAttr calledComputations = customCallOp.getCalledComputations();
-  if (!calledComputations || calledComputations.size() != 1) {
-    return std::nullopt;
-  }
-  if (auto callee =
-          mlir::dyn_cast<mlir::FlatSymbolRefAttr>(calledComputations[0])) {
-    return callee.getValue();
-  }
-  return std::nullopt;
-}
-
-// Returns true if the call or compute-on-start operation is annotated with
+// Returns true if the call operation is annotated with
 // _xla_compute_type="sparseoffload", either directly as an attribute or
 // nested inside its frontend attributes.
-bool hasSparseOffloadAttribute(Operation* op) {
+bool hasSparseOffloadAttribute(CallOp callOp) {
   mlir::StringAttr computeTypeAttr =
-      op->getAttrOfType<mlir::StringAttr>(xla::kXlaComputeTypeAttr);
+      callOp->getAttrOfType<mlir::StringAttr>(xla::kXlaComputeTypeAttr);
   if (!computeTypeAttr) {
-    if (DictionaryAttr frontendAttrs = getFrontendAttrs(op)) {
+    if (DictionaryAttr frontendAttrs =
+            getFrontendAttrs(callOp.getOperation())) {
       computeTypeAttr =
           frontendAttrs.getAs<mlir::StringAttr>(xla::kXlaComputeTypeAttr);
     }
@@ -620,10 +595,8 @@ bool isSlicingAtCallSites(FuncOp funcOp, int argIdx,
   }
   return llvm::any_of(
       *symbolUses, [&](const mlir::SymbolTable::SymbolUse& use) {
-        if (Operation* user = use.getUser();
-            mlir::isa<CallOp>(user) ||
-            getComputeOnStartCalleeName(user).has_value()) {
-          return isSlicing(getSharding(user->getOperand(argIdx)),
+        if (auto callOp = mlir::dyn_cast<CallOp>(use.getUser())) {
+          return isSlicing(getSharding(callOp->getOperand(argIdx)),
                            calleeSharding);
         }
         return false;
@@ -753,22 +726,11 @@ class SdyRoundTripImportShardyAttrsPass
     }
 
     llvm::DenseSet<FuncOp> modifiedCallees;
-    moduleOp.walk([&](Operation* op) {
-      if (!mlir::isa<CallOp, CustomCallOp>(op)) {
-        return;
-      }
-      if (hasSparseOffloadAttribute(op)) {
-        std::optional<StringRef> calleeName;
-        if (auto callOp = mlir::dyn_cast<CallOp>(op)) {
-          calleeName = callOp.getCallee();
-        } else {
-          calleeName = getComputeOnStartCalleeName(op);
-        }
-        if (calleeName) {
-          const FuncOp callee = symbolTable.lookup<FuncOp>(*calleeName);
-          if (callee && modifiedCallees.insert(callee).second) {
-            insertPropagationBarriers(callee, moduleOp, rewriter);
-          }
+    moduleOp.walk([&](CallOp callOp) {
+      if (hasSparseOffloadAttribute(callOp)) {
+        const FuncOp callee = symbolTable.lookup<FuncOp>(callOp.getCallee());
+        if (callee && modifiedCallees.insert(callee).second) {
+          insertPropagationBarriers(callee, moduleOp, rewriter);
         }
       }
     });

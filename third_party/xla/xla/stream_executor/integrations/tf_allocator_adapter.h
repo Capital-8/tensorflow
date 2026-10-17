@@ -82,15 +82,13 @@ class TfAllocatorAdapter : public DeviceAddressAllocator {
   TfAllocatorAdapter(
       tsl::Allocator* wrapped, Stream* stream,
       size_t min_alignment = tsl::Allocator::kAllocatorAlignment,
-      tsl::AllocationEnd allocation_end = tsl::AllocationEnd::kLower,
-      std::optional<int> device_ordinal = std::nullopt);
+      tsl::AllocationEnd allocation_end = tsl::AllocationEnd::kLower);
 
   // Constructor for cases where `stream` is not available.
   TfAllocatorAdapter(
       tsl::Allocator* wrapped, const Platform* platform,
       size_t min_alignment = tsl::Allocator::kAllocatorAlignment,
-      tsl::AllocationEnd allocation_end = tsl::AllocationEnd::kLower,
-      std::optional<int> device_ordinal = std::nullopt);
+      tsl::AllocationEnd allocation_end = tsl::AllocationEnd::kLower);
 
   ~TfAllocatorAdapter() override;
 
@@ -118,7 +116,6 @@ class TfAllocatorAdapter : public DeviceAddressAllocator {
   Stream* stream_;
   size_t min_alignment_;
   tsl::AllocationEnd allocation_end_;
-  std::optional<int> device_ordinal_;
 };
 
 // Adapter class that wraps per-device TF allocators with corresponding streams

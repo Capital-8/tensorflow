@@ -124,8 +124,7 @@ Decision VerifyTritonConstraints(const TiledHloComputation& tiled_computation,
   // TODO(b/393299275): There is also a lower bound limit for Triton on what
   // is accepted for dimension size (both contracting and free).
   for (const TiledHloInstruction* inst : all_instructions) {
-    if (inst->hlo()->opcode() == HloOpcode::kDot ||
-        inst->hlo()->opcode() == HloOpcode::kScaledDot) {
+    if (inst->hlo()->opcode() == HloOpcode::kDot) {
       for (const TiledHloInstruction* operand : inst->operands()) {
         auto op_tile_sizes_or = operand->tile().GetStaticTileSizes();
         if (!op_tile_sizes_or.ok()) {

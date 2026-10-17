@@ -2878,9 +2878,6 @@ LogicalResult ConcatenateOp::verify() {
           "Not implemented:: Expected all operands to have the same element "
           "type.");
     }
-    if (shape.size() != first_shape.size()) {
-      return emitOpError("Expected all operands to have the same rank.");
-    }
     for (int dim = 0; dim < shape.size(); ++dim) {
       if (dim != dimension && shape[dim] != first_shape[dim]) {
         return emitOpError(
@@ -2896,22 +2893,15 @@ LogicalResult ConcatenateOp::verify() {
     MLIRContext* context, std::optional<Location> location, ValueRange operands,
     DictionaryAttr attributes, mlir::PropertyRef properties,
     RegionRange regions, SmallVectorImpl<Type>& inferredReturnTypes) {
-  if (operands.empty()) {
-    return failure();
-  }
   ConcatenateOpAdaptor adaptor(operands, attributes, properties, regions);
   auto dimension = adaptor.getDimension();
-  auto first_type = dyn_cast<VectorType>(operands[0].getType());
-  if (!first_type) {
-    return failure();
-  }
   for (auto [i, operand] : llvm::enumerate(operands)) {
     if (auto operand_ty = dyn_cast<VectorType>(operand.getType());
-        !operand_ty || operand_ty.getRank() <= dimension ||
-        operand_ty.getRank() != first_type.getRank()) {
+        !operand_ty || operand_ty.getRank() <= dimension) {
       return failure();
     }
   }
+  auto first_type = cast<VectorType>(operands[0].getType());
   llvm::SmallVector<int64_t> result_shape =
       llvm::to_vector(first_type.getShape());
   Type result_dtype = first_type.getElementType();

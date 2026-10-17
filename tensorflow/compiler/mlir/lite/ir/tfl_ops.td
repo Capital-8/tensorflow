@@ -2464,8 +2464,6 @@ def TFL_MeanOp : TFL_Op<"mean", [
 
   let hasOptions = 1;
   let customOption = "ReducerOptions";
-
-  let hasFolder = 1;
 }
 
 def TFL_OneHotOp : TFL_Op<"one_hot", [
@@ -4016,8 +4014,6 @@ def TFL_ResizeBilinearOp: TFL_Op<"resize_bilinear", [
   );
 
   let hasOptions = 1;
-
-  let hasFolder = 1;
 }
 
 def TFL_ResizeNearestNeighborOp : TFL_Op<"resize_nearest_neighbor", [
@@ -4047,8 +4043,6 @@ def TFL_ResizeNearestNeighborOp : TFL_Op<"resize_nearest_neighbor", [
   );
 
   let hasOptions = 1;
-
-  let hasFolder = 1;
 }
 
 def TFL_SparseToDenseOp : TFL_Op<"sparse_to_dense", [

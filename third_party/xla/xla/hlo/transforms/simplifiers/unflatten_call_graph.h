@@ -19,7 +19,6 @@ limitations under the License.
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -32,7 +31,6 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/hlo/pass/hlo_pass_interface.h"
-#include "xla/util.h"
 
 namespace xla {
 
@@ -41,34 +39,15 @@ namespace xla {
 // Only computations called by kCall instructions will be unflattened.
 class UnflattenCallGraph : public HloModulePass {
  public:
-  explicit UnflattenCallGraph(
-      HloPredicate should_unflatten_call = HloPredicateTrue)
+  UnflattenCallGraph()
       : print_options_(HloPrintOptions::Canonical()
                            .set_print_ids(false)
                            .set_print_metadata(true)
-                           .set_print_backend_config(true)),
-        should_unflatten_call_(std::move(should_unflatten_call)) {}
+                           .set_print_backend_config(true)) {}
 
   absl::string_view name() const override { return "unflatten-call-graph"; }
 
  protected:
-  // Struct to hold all call instructions and called computations in a module.
-  struct HloCalls {
-    // All callsites are guaranteed to be `kCall` instructions.
-    absl::flat_hash_set<HloInstruction*> call_sites;
-    absl::flat_hash_set<HloComputation*> targets;
-  };
-
-  // Iterates through all instructions in the module's computations and
-  // collects all `HloInstruction`s with opcode `kCall` into `call_sites` and
-  // all unique computations targeted by these calls into `targets`. Only
-  // retains call sites and targets that could potentially be duplicates by
-  // filtering out computations with unique properties (instruction count,
-  // parameter count).
-  HloCalls CollectHloCalls(
-      HloModule* module,
-      const absl::flat_hash_set<absl::string_view>& execution_threads);
-
   // Find called computations that are identical and replace them with calls to
   // a single computation. Returns true if the module was changed.
   absl::StatusOr<bool> RunImpl(
@@ -97,7 +76,6 @@ class UnflattenCallGraph : public HloModulePass {
           hash_to_canonical);
 
   HloPrintOptions print_options_;
-  HloPredicate should_unflatten_call_;
 };
 
 }  // namespace xla
