@@ -38,8 +38,17 @@ limitations under the License.
 namespace tsl {
 namespace profiler {
 
+// Same value as TraceMeFilter::kTraceHostEnqueueCallback (see
+// trace_filter_utils.h): the index of its filter bit, i.e. bit 1 (mask 0x2).
+// That bit is excluded from the default mask so that sessions with
+// host_traceme_filter_mask = (1ULL << kTraceMeHostEnqueueCallbackFilter)
+// record only TraceMe events tagged with it, while sessions without a filter
+// record tagged and untagged events alike.
+constexpr int kTraceMeHostEnqueueCallbackFilter = 1;
+
 constexpr uint64_t kTraceMeDefaultFilterMask =
-    std::numeric_limits<uint64_t>::max();
+    std::numeric_limits<uint64_t>::max() &
+    ~(uint64_t{1} << kTraceMeHostEnqueueCallbackFilter);
 
 // Predefined levels:
 // - Level 1 (kCritical) is the default and used only for user instrumentation.

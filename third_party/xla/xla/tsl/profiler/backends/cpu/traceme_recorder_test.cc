@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 #include <set>
 #include <string>
 #include <utility>
@@ -32,7 +33,9 @@ limitations under the License.
 #include "xla/tsl/platform/threadpool.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/time_utils.h"
+#include "xla/tsl/profiler/utils/trace_filter_utils.h"
 #include "xla/tsl/profiler/utils/traceme_global_flags.h"
+#include "tsl/profiler/lib/traceme.h"
 #include "tsl/profiler/lib/traceme_encode.h"
 
 namespace tsl {
@@ -285,6 +288,57 @@ TEST(RecorderTest, FlushComplexLifetimes) {
   EXPECT_FALSE(found_dead);
 
   TraceMeRecorder::Stop();
+}
+
+// traceme.h cannot depend on trace_filter_utils.h, so it keeps its own copy of
+// the kTraceHostEnqueueCallback bit.
+static_assert(kTraceMeHostEnqueueCallbackFilter ==
+                  static_cast<int>(TraceMeFilter::kTraceHostEnqueueCallback),
+              "kTraceMeHostEnqueueCallbackFilter must match "
+              "TraceMeFilter::kTraceHostEnqueueCallback");
+
+std::vector<std::string> RecordFilteredTraceMes(int level,
+                                                uint64_t session_filter_mask) {
+  const uint64_t host_enqueue_callback_mask =
+      kTraceMeDefaultFilterMask |
+      TraceMeFiltersToMask({TraceMeFilter::kTraceHostEnqueueCallback});
+  TraceMeRecorder::Stop();  // Ensure a clean state from previous tests
+  TraceMeRecorder::Start(level, session_filter_mask);
+  {
+    TraceMe tagged("tagged", /*level=*/1, host_enqueue_callback_mask);
+  }
+  {
+    TraceMe untagged("untagged", /*level=*/1);
+  }
+  {
+    TraceMe memory("memory", /*level=*/1,
+                   TraceMeFiltersToMask({TraceMeFilter::kTraceMemory}));
+  }
+  std::vector<std::string> names;
+  for (const auto& thread : TraceMeRecorder::Stop()) {
+    for (const auto& event : thread.events) {
+      names.push_back(event.name);
+    }
+  }
+  return names;
+}
+
+TEST(RecorderTest, HostEnqueueCallbackFilterRecordsOnlyTaggedTraceMe) {
+  EXPECT_EQ(kTraceMeDefaultFilterMask &
+                (uint64_t{1} << kTraceMeHostEnqueueCallbackFilter),
+            0);
+  EXPECT_THAT(RecordFilteredTraceMes(
+                  /*level=*/1, TraceMeFiltersToMask(
+                                   {TraceMeFilter::kTraceHostEnqueueCallback})),
+              ElementsAre("tagged"));
+}
+
+TEST(RecorderTest, NoFilterRecordsTaggedAndUntaggedTraceMe) {
+  EXPECT_THAT(RecordFilteredTraceMes(/*level=*/1, kTraceMeDefaultFilterMask),
+              ElementsAre("tagged", "untagged", "memory"));
+  EXPECT_THAT(
+      RecordFilteredTraceMes(/*level=*/1, std::numeric_limits<uint64_t>::max()),
+      ElementsAre("tagged", "untagged", "memory"));
 }
 
 }  // namespace
