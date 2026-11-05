@@ -766,6 +766,19 @@ TEST(OpVersionTest, VersioningFullyConnectedTest) {
     fake_op_sig.ext_options.fully_connected.is_weight_blockwise_quantized =
         true;
     EXPECT_EQ(GetBuiltinOperatorVersion(fake_op_sig), 16);
+
+    // The dynamic range variant (float input and output) is version 17.
+    fully_connected_params = {};
+    fake_op_sig = {
+        .op = BuiltinOperator_FULLY_CONNECTED,
+        .inputs = CreateOpSignatureTensorSpecs(std::vector<TfLiteType>{
+            kTfLiteFloat32, weight_type, kTfLiteFloat32}),
+        .outputs = CreateOpSignatureTensorSpecs(kTfLiteFloat32),
+        .builtin_data = reinterpret_cast<void*>(&fully_connected_params),
+    };
+    fake_op_sig.ext_options.fully_connected.is_weight_blockwise_quantized =
+        true;
+    EXPECT_EQ(GetBuiltinOperatorVersion(fake_op_sig), 17);
   }
 }
 

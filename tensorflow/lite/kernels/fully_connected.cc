@@ -878,18 +878,27 @@ TfLiteStatus ParseQuantSpec(TfLiteContext* context,
 // FULLY_CONNECTED with a filter carrying N-D blockwise quantization
 // (`kTfLiteBlockwiseQuantizationV2`).
 //
-// The input and output are int8 with per-tensor affine quantization, and the
-// [num_units, accum_depth] filter dequantizes block by block. With block shape
-// `(bn, bk)`, element `(n, k)` belongs to block `(n / bn, k / bk)` and
+// The [num_units, accum_depth] filter dequantizes block by block. With block
+// shape `(bn, bk)`, element `(n, k)` belongs to block `(n / bn, k / bk)` and
 // dequantizes as
 //
 //   filter[n, k] = scale[block] * (q[n, k] - zero_point[block])
 //
 // where scale / zero point extents of 1 broadcast, a missing zero point means
 // 0, and the zero point may be fractional (e.g. -0.5 for a centered int2
-// grid). The optional int32 bias carries its own affine scale (per-tensor or
-// per output channel, zero point 0) since no single filter scale exists to
-// derive it from.
+// grid). The kernel consumes the quantized filter directly; it never
+// materializes the dequantized filter. Two input / output contracts are
+// supported:
+//
+// * Static range (SRQ): the input and output are int8 with per-tensor affine
+//   quantization. The optional int32 bias carries its own affine scale
+//   (per-tensor or per output channel, zero point 0) since no single filter
+//   scale exists to derive it from.
+// * Dynamic range (DRQ, hybrid): the input and output are float32. Each input
+//   row (one batch entry of `accum_depth` values) is quantized to int8 on the
+//   fly, symmetrically with its own scale `max(|x|) / 127` (the
+//   `asymmetric_quantize_inputs = false` scheme of the hybrid kernels), and the
+//   optional bias is float32.
 
 namespace {
 
@@ -934,6 +943,23 @@ TfLiteStatus ValidateBlockwiseFilterBias(TfLiteContext* context,
   return kTfLiteOk;
 }
 
+// Checks the bias of a dynamic range FULLY_CONNECTED with a blockwise
+// quantized filter: a float32 tensor of `num_units` elements.
+TfLiteStatus ValidateBlockwiseFilterFloatBias(TfLiteContext* context,
+                                              const TfLiteTensor* bias,
+                                              int num_units) {
+  TF_LITE_ENSURE_TYPES_EQ(context, bias->type, kTfLiteFloat32);
+  TF_LITE_ENSURE_EQ(context, NumElements(bias), num_units);
+  return kTfLiteOk;
+}
+
+// Returns true if `activation` is one of the fused activations the blockwise
+// filter paths implement.
+bool IsSupportedBlockwiseFilterActivation(TfLiteFusedActivation activation) {
+  return activation == kTfLiteActNone || activation == kTfLiteActRelu ||
+         activation == kTfLiteActReluN1To1 || activation == kTfLiteActRelu6;
+}
+
 TfLiteStatus PrepareBlockwiseFilter(
     TfLiteContext* context, TfLiteNode* node,
     const TfLiteBlockwiseQuantizationV2* filter_blockwise) {
@@ -947,10 +973,7 @@ TfLiteStatus PrepareBlockwiseFilter(
   // `CalculateActivationRangeQuantized` gives other activations the full
   // range, which would silently drop them.
   TF_LITE_ENSURE_MSG(context,
-                     params->activation == kTfLiteActNone ||
-                         params->activation == kTfLiteActRelu ||
-                         params->activation == kTfLiteActReluN1To1 ||
-                         params->activation == kTfLiteActRelu6,
+                     IsSupportedBlockwiseFilterActivation(params->activation),
                      "FullyConnected with a blockwise filter only supports "
                      "NONE, RELU, RELU_N1_TO_1 and RELU6 activations.");
 
@@ -967,8 +990,14 @@ TfLiteStatus PrepareBlockwiseFilter(
   TF_LITE_ENSURE_OK(context,
                     GetOutputSafe(context, node, kOutputTensor, &output));
 
-  TF_LITE_ENSURE_TYPES_EQ(context, input->type, kTfLiteInt8);
-  TF_LITE_ENSURE_TYPES_EQ(context, output->type, kTfLiteInt8);
+  // An int8 input selects the static range contract and a float32 one the
+  // dynamic range contract; the output type must match the input type.
+  TF_LITE_ENSURE_MSG(
+      context, input->type == kTfLiteInt8 || input->type == kTfLiteFloat32,
+      "FullyConnected with a blockwise filter requires an INT8 (static range) "
+      "or FLOAT32 (dynamic range) input.");
+  const bool is_dynamic_range = input->type == kTfLiteFloat32;
+  TF_LITE_ENSURE_TYPES_EQ(context, output->type, input->type);
   TF_LITE_ENSURE_MSG(
       context,
       filter->type == kTfLiteInt2 || filter->type == kTfLiteInt4 ||
@@ -976,14 +1005,24 @@ TfLiteStatus PrepareBlockwiseFilter(
           filter->type == kTfLiteUInt8 || filter->type == kTfLiteInt16,
       "FullyConnected with a blockwise filter requires an INT2, INT4, UINT4, "
       "INT8, UINT8 or INT16 filter.");
-  TF_LITE_ENSURE_MSG(
-      context, HasPerTensorInt8AffineQuantization(input),
-      "FullyConnected with a blockwise filter requires a per-tensor quantized "
-      "input with a finite, positive scale and an int8 zero point.");
-  TF_LITE_ENSURE_MSG(
-      context, HasPerTensorInt8AffineQuantization(output),
-      "FullyConnected with a blockwise filter requires a per-tensor quantized "
-      "output with a finite, positive scale and an int8 zero point.");
+  if (is_dynamic_range) {
+    // The input rows are always quantized symmetrically; honoring the
+    // asymmetric scheme silently would compute something else.
+    TF_LITE_ENSURE_MSG(context, !params->asymmetric_quantize_inputs,
+                       "Dynamic range FullyConnected with a blockwise filter "
+                       "does not support asymmetric_quantize_inputs.");
+  } else {
+    TF_LITE_ENSURE_MSG(
+        context, HasPerTensorInt8AffineQuantization(input),
+        "FullyConnected with a blockwise filter requires a per-tensor "
+        "quantized input with a finite, positive scale and an int8 zero "
+        "point.");
+    TF_LITE_ENSURE_MSG(
+        context, HasPerTensorInt8AffineQuantization(output),
+        "FullyConnected with a blockwise filter requires a per-tensor "
+        "quantized output with a finite, positive scale and an int8 zero "
+        "point.");
+  }
   TF_LITE_ENSURE_MSG(
       context, filter->sparsity == nullptr,
       "FullyConnected with a blockwise filter does not support sparsity.");
@@ -1017,15 +1056,20 @@ TfLiteStatus PrepareBlockwiseFilter(
   const int num_units = SizeOfDimension(filter, 0);
   const int accum_depth = SizeOfDimension(filter, 1);
   if (bias != nullptr) {
-    TF_LITE_ENSURE_OK(context,
-                      ValidateBlockwiseFilterBias(context, bias, num_units));
+    TF_LITE_ENSURE_OK(
+        context,
+        is_dynamic_range
+            ? ValidateBlockwiseFilterFloatBias(context, bias, num_units)
+            : ValidateBlockwiseFilterBias(context, bias, num_units));
   }
 
-  TF_LITE_ENSURE_STATUS(CalculateActivationRangeQuantized(
-      context, params->activation, output, &data->output_activation_min,
-      &data->output_activation_max));
-  TF_LITE_ENSURE(context,
-                 data->output_activation_min <= data->output_activation_max);
+  if (!is_dynamic_range) {
+    TF_LITE_ENSURE_STATUS(CalculateActivationRangeQuantized(
+        context, params->activation, output, &data->output_activation_min,
+        &data->output_activation_max));
+    TF_LITE_ENSURE(context,
+                   data->output_activation_min <= data->output_activation_max);
+  }
 
   TF_LITE_ENSURE(context, NumDimensions(input) >= 1);
   int batch_size = 1;
@@ -1051,19 +1095,20 @@ TfLiteStatus PrepareBlockwiseFilter(
                           accum_depth);
 }
 
-// Computes the blockwise FULLY_CONNECTED for one weight storage type. The
-// accumulation of each block is exact; it is scaled and summed in double.
-template <typename WeightT>
-void EvalBlockwiseFilterImpl(
-    const int8_t* input_data, int32_t input_zero_point, const WeightT* weights,
-    int batches, int num_units, int accum_depth, int unit_block_size,
-    int depth_block_size, const std::vector<float>& scales,
-    const std::vector<int64_t>& scale_strides,
-    const std::vector<float>& zero_points,
-    const std::vector<int64_t>& zero_point_strides,
-    double input_to_output_scale, const std::vector<double>& bias_over_output,
-    int32_t output_zero_point, int32_t output_activation_min,
-    int32_t output_activation_max, int8_t* output_data) {
+// Accumulates the blockwise FULLY_CONNECTED for one weight storage type and
+// calls `store(b, n, acc)` with the accumulator of each output element, in
+// units of the input scale. The accumulation of each block is exact; it is
+// scaled and summed in double.
+template <typename WeightT, typename StoreFn>
+void AccumulateBlockwiseFilter(const int8_t* input_data,
+                               int32_t input_zero_point, const WeightT* weights,
+                               int batches, int num_units, int accum_depth,
+                               int unit_block_size, int depth_block_size,
+                               const std::vector<float>& scales,
+                               const std::vector<int64_t>& scale_strides,
+                               const std::vector<float>& zero_points,
+                               const std::vector<int64_t>& zero_point_strides,
+                               StoreFn store) {
   const int num_depth_blocks =
       (accum_depth == 0) ? 0 : (1 + (accum_depth - 1) / depth_block_size);
   std::vector<int32_t> centered_input(accum_depth);
@@ -1084,14 +1129,12 @@ void EvalBlockwiseFilterImpl(
       input_block_sums[kb] = sum;
     }
 
-    int8_t* output_row = output_data + static_cast<int64_t>(b) * num_units;
     for (int n = 0; n < num_units; ++n) {
       const WeightT* weight_row =
           weights + static_cast<int64_t>(n) * accum_depth;
       const int unit_block = n / unit_block_size;
       const int64_t scale_base = unit_block * scale_strides[0];
       const int64_t zero_point_base = unit_block * zero_point_strides[0];
-      // Accumulator in units of the input scale.
       double acc = 0.0;
       for (int kb = 0; kb < num_depth_blocks; ++kb) {
         const int k_start = kb * depth_block_size;
@@ -1108,20 +1151,39 @@ void EvalBlockwiseFilterImpl(
         acc += scale * (static_cast<double>(dot) -
                         zero_point * static_cast<double>(input_block_sums[kb]));
       }
-      double real_over_output = acc * input_to_output_scale;
-      if (!bias_over_output.empty()) {
-        real_over_output += bias_over_output[n];
-      }
-      const double rounded =
-          std::round(real_over_output) + static_cast<double>(output_zero_point);
-      if (std::isnan(rounded)) {
-        output_row[n] = 0;
-      } else {
-        const double clamped =
-            std::clamp(rounded, static_cast<double>(output_activation_min),
-                       static_cast<double>(output_activation_max));
-        output_row[n] = static_cast<int8_t>(static_cast<int32_t>(clamped));
-      }
+      store(b, n, acc);
+    }
+  }
+}
+
+// Quantizes each of the `batches` rows of `accum_depth` floats in `input` to
+// int8 symmetrically with its own scale: `scale = max(|x|) / 127` and
+// `q = clamp(round(x / scale), -127, 127)`, computed as `round(x * (127 /
+// max(|x|)))` like `tensor_utils::PortableSymmetricQuantizeFloats`. An all-zero
+// row gets scale 1. A NaN quantizes to 0.
+void QuantizeRowsSymmetric(const float* input, int batches, int accum_depth,
+                           int8_t* quantized, float* row_scales) {
+  constexpr float kQMax = 127.0f;
+  for (int b = 0; b < batches; ++b) {
+    const float* row = input + static_cast<int64_t>(b) * accum_depth;
+    int8_t* quantized_row = quantized + static_cast<int64_t>(b) * accum_depth;
+    float max_abs = 0.0f;
+    for (int k = 0; k < accum_depth; ++k) {
+      max_abs = std::max(max_abs, std::abs(row[k]));
+    }
+    if (max_abs == 0.0f) {
+      std::fill_n(quantized_row, accum_depth, 0);
+      row_scales[b] = 1.0f;
+      continue;
+    }
+    row_scales[b] = max_abs / kQMax;
+    const float inverse_scale = kQMax / max_abs;
+    for (int k = 0; k < accum_depth; ++k) {
+      const float rounded = std::round(row[k] * inverse_scale);
+      quantized_row[k] =
+          std::isnan(rounded)
+              ? 0
+              : static_cast<int8_t>(std::clamp(rounded, -kQMax, kQMax));
     }
   }
 }
@@ -1130,8 +1192,8 @@ void EvalBlockwiseFilterImpl(
 // for constant filters and add an optimized path; this re-unpacks the filter
 // on every invocation.
 TfLiteStatus EvalBlockwiseFilter(
-    TfLiteContext* context, const OpData* data, const TfLiteTensor* input,
-    const TfLiteTensor* filter,
+    TfLiteContext* context, const TfLiteFullyConnectedParams* params,
+    const OpData* data, const TfLiteTensor* input, const TfLiteTensor* filter,
     const TfLiteBlockwiseQuantizationV2* filter_blockwise,
     const TfLiteTensor* bias, TfLiteTensor* output) {
   TF_LITE_ENSURE_OK(context, dequantize::ValidateBlockwiseQuantizationV2(
@@ -1139,6 +1201,9 @@ TfLiteStatus EvalBlockwiseFilter(
   TF_LITE_ENSURE_OK(context, dequantize::ValidateBlockwiseQuantizationV2Buffers(
                                  context, filter, filter_blockwise));
   TF_LITE_ENSURE_EQ(context, NumDimensions(filter), 2);
+  const bool is_dynamic_range = input->type == kTfLiteFloat32;
+  TF_LITE_ENSURE(context, is_dynamic_range || input->type == kTfLiteInt8);
+  TF_LITE_ENSURE_TYPES_EQ(context, output->type, input->type);
   const int num_units = SizeOfDimension(filter, 0);
   const int accum_depth = SizeOfDimension(filter, 1);
   TF_LITE_ENSURE(context, num_units > 0);
@@ -1150,9 +1215,9 @@ TfLiteStatus EvalBlockwiseFilter(
   if (output_size == 0) {
     return kTfLiteOk;
   }
-  TF_LITE_ENSURE(context, GetTensorData<int8_t>(output) != nullptr);
+  TF_LITE_ENSURE(context, output->data.raw != nullptr);
   if (accum_depth > 0) {
-    TF_LITE_ENSURE(context, GetTensorData<int8_t>(input) != nullptr);
+    TF_LITE_ENSURE(context, input->data.raw != nullptr);
   }
 
   const TfLiteTensor* scale_tensor = &context->tensors[filter_blockwise->scale];
@@ -1170,6 +1235,69 @@ TfLiteStatus EvalBlockwiseFilter(
       dequantize::GetBlockwiseParamsStrides(scale_tensor, /*rank=*/2);
   const std::vector<int64_t> zero_point_strides =
       dequantize::GetBlockwiseParamsStrides(zero_point_tensor, /*rank=*/2);
+
+  dequantize::BlockwiseQuantizedValues filter_values;
+  TF_LITE_ENSURE_OK(context, dequantize::GetBlockwiseQuantizedValues(
+                                 context, filter, &filter_values));
+  const int unit_block_size = filter_blockwise->block_shape->data[0];
+  const int depth_block_size = filter_blockwise->block_shape->data[1];
+  // Dispatches on the type rather than on which pointer is set: an empty
+  // filter has null data.
+  auto accumulate = [&](const int8_t* input_data, int32_t input_zero_point,
+                        auto store) {
+    auto run = [&](const auto* weights) {
+      AccumulateBlockwiseFilter(input_data, input_zero_point, weights, batches,
+                                num_units, accum_depth, unit_block_size,
+                                depth_block_size, scales, scale_strides,
+                                zero_points, zero_point_strides, store);
+    };
+    switch (filter->type) {
+      case kTfLiteUInt8:
+        run(filter_values.uint8_data);
+        break;
+      case kTfLiteInt16:
+        run(filter_values.int16_data);
+        break;
+      default:
+        run(filter_values.int8_data);
+        break;
+    }
+  };
+
+  if (is_dynamic_range) {
+    TF_LITE_ENSURE(context, !params->asymmetric_quantize_inputs);
+    std::vector<float> bias_values;
+    if (bias != nullptr) {
+      TF_LITE_ENSURE_OK(
+          context, ValidateBlockwiseFilterFloatBias(context, bias, num_units));
+      const float* bias_data = GetTensorData<float>(bias);
+      TF_LITE_ENSURE(context, bias_data != nullptr);
+      bias_values.assign(bias_data, bias_data + num_units);
+    }
+    float activation_min = 0.0f;
+    float activation_max = 0.0f;
+    CalculateActivationRange(params->activation, &activation_min,
+                             &activation_max);
+
+    std::vector<int8_t> quantized_input(static_cast<int64_t>(batches) *
+                                        accum_depth);
+    std::vector<float> row_scales(batches);
+    QuantizeRowsSymmetric(GetTensorData<float>(input), batches, accum_depth,
+                          quantized_input.data(), row_scales.data());
+    float* output_data = GetTensorData<float>(output);
+    accumulate(quantized_input.data(), /*input_zero_point=*/0,
+               [&](int b, int n, double acc) {
+                 double value = acc * static_cast<double>(row_scales[b]);
+                 if (!bias_values.empty()) {
+                   value += static_cast<double>(bias_values[n]);
+                 }
+                 output_data[static_cast<int64_t>(b) * num_units + n] =
+                     ActivationFunctionWithMinMax(static_cast<float>(value),
+                                                  activation_min,
+                                                  activation_max);
+               });
+    return kTfLiteOk;
+  }
 
   const double output_scale = static_cast<double>(output->params.scale);
   std::vector<double> bias_over_output;
@@ -1189,36 +1317,31 @@ TfLiteStatus EvalBlockwiseFilter(
     }
   }
 
-  dequantize::BlockwiseQuantizedValues filter_values;
-  TF_LITE_ENSURE_OK(context, dequantize::GetBlockwiseQuantizedValues(
-                                 context, filter, &filter_values));
-  const int8_t* input_data = GetTensorData<int8_t>(input);
-  const int32_t input_zero_point = input->params.zero_point;
   const double input_to_output_scale =
       static_cast<double>(input->params.scale) / output_scale;
-  const int unit_block_size = filter_blockwise->block_shape->data[0];
-  const int depth_block_size = filter_blockwise->block_shape->data[1];
-  auto run = [&](const auto* weights) {
-    EvalBlockwiseFilterImpl(
-        input_data, input_zero_point, weights, batches, num_units, accum_depth,
-        unit_block_size, depth_block_size, scales, scale_strides, zero_points,
-        zero_point_strides, input_to_output_scale, bias_over_output,
-        output->params.zero_point, data->output_activation_min,
-        data->output_activation_max, GetTensorData<int8_t>(output));
-  };
-  // Dispatch on the type rather than on which pointer is set: an empty filter
-  // has null data.
-  switch (filter->type) {
-    case kTfLiteUInt8:
-      run(filter_values.uint8_data);
-      break;
-    case kTfLiteInt16:
-      run(filter_values.int16_data);
-      break;
-    default:
-      run(filter_values.int8_data);
-      break;
-  }
+  const double output_zero_point =
+      static_cast<double>(output->params.zero_point);
+  const double output_activation_min =
+      static_cast<double>(data->output_activation_min);
+  const double output_activation_max =
+      static_cast<double>(data->output_activation_max);
+  int8_t* output_data = GetTensorData<int8_t>(output);
+  accumulate(GetTensorData<int8_t>(input), input->params.zero_point,
+             [&](int b, int n, double acc) {
+               double real_over_output = acc * input_to_output_scale;
+               if (!bias_over_output.empty()) {
+                 real_over_output += bias_over_output[n];
+               }
+               const double rounded =
+                   std::round(real_over_output) + output_zero_point;
+               int8_t* out = output_data + static_cast<int64_t>(b) * num_units;
+               if (std::isnan(rounded)) {
+                 out[n] = 0;
+               } else {
+                 out[n] = static_cast<int8_t>(static_cast<int32_t>(std::clamp(
+                     rounded, output_activation_min, output_activation_max)));
+               }
+             });
   return kTfLiteOk;
 }
 
@@ -2664,8 +2787,8 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
   if (const TfLiteBlockwiseQuantizationV2* filter_blockwise =
           dequantize::GetBlockwiseQuantizationV2(filter);
       filter_blockwise != nullptr) {
-    return EvalBlockwiseFilter(context, data, input, filter, filter_blockwise,
-                               bias, output);
+    return EvalBlockwiseFilter(context, params, data, input, filter,
+                               filter_blockwise, bias, output);
   }
 
   if (filter->dims->data[1] == 0) {
