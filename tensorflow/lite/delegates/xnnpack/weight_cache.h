@@ -57,8 +57,10 @@ inline constexpr char kInMemoryCachePath[] = ":memory";
 // When reading a cache file, the cache should be rejected if `version`
 // doesn't match `kVersion`.
 struct XNNPackCacheHeader {
-  enum : uint64_t { kInvalidHeader = 0, kVersion = 4 };
+  enum : uint64_t { kInvalidHeader = 0, kVersion = 5 };
+  static constexpr int64_t kMagicValue = 0x584E4E5041434B00;
   uint64_t version;
+  uint64_t magic_value;
   uint64_t buffer_list_offset;
   uint64_t buffer_list_size;
   uint8_t stale;
