@@ -609,6 +609,14 @@ int GetBuiltinOperatorVersion(const OpSignature& op_sig) {
       return 1;
 
     case BuiltinOperator_QUANTIZE:
+      // Float16 to int4 / uint4 is version 7. Float16 to int8 / uint8 / int16
+      // keeps the version of its output type: XNNPack has run it at those
+      // versions, and the reference kernel quantizes float16 as float32.
+      if (op_sig.inputs.at(0).type == kTfLiteFloat16 &&
+          (op_sig.outputs.at(0).type == kTfLiteInt4 ||
+           op_sig.outputs.at(0).type == kTfLiteUInt4)) {
+        return 7;
+      }
       if (op_sig.inputs.at(0).type == kTfLiteUInt4 ||
           op_sig.outputs.at(0).type == kTfLiteUInt4) {
         return 5;

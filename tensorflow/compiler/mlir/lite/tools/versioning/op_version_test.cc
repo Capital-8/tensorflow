@@ -897,6 +897,18 @@ TEST(OpVersionTest, VersioningQuantizeTest) {
 
   fake_op_sig.outputs = CreateOpSignatureTensorSpecs(kTfLiteUInt4);
   EXPECT_EQ(GetBuiltinOperatorVersion(fake_op_sig), 5);
+
+  // Float16 inputs: int4 / uint4 outputs are version 7, the others keep the
+  // version of their output type.
+  fake_op_sig.inputs = CreateOpSignatureTensorSpecs(kTfLiteFloat16);
+  fake_op_sig.outputs = CreateOpSignatureTensorSpecs(kTfLiteInt4);
+  EXPECT_EQ(GetBuiltinOperatorVersion(fake_op_sig), 7);
+  fake_op_sig.outputs = CreateOpSignatureTensorSpecs(kTfLiteUInt4);
+  EXPECT_EQ(GetBuiltinOperatorVersion(fake_op_sig), 7);
+  fake_op_sig.outputs = CreateOpSignatureTensorSpecs(kTfLiteInt8);
+  EXPECT_EQ(GetBuiltinOperatorVersion(fake_op_sig), 1);
+  fake_op_sig.outputs = CreateOpSignatureTensorSpecs(kTfLiteInt16);
+  EXPECT_EQ(GetBuiltinOperatorVersion(fake_op_sig), 2);
 }
 
 TEST(OpVersionTest, VersioningConv2DTest) {
